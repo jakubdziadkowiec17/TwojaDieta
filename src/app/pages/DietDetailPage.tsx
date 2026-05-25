@@ -1,0 +1,531 @@
+import { useMemo, useState } from 'react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router';
+import { format } from 'date-fns';
+import { pl } from 'date-fns/locale';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { Flame, Leaf, Calendar, Truck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarPicker } from '../components/ui/calendar';
+import { useIsMobile } from '../components/ui/use-mobile';
+import { useData } from '../providers/DataProvider';
+import { useCart } from '../providers/CartProvider';
+import { useAuth } from '../providers/AuthProvider';
+
+function parseCsvNumbers(value: string): number[] {
+  return value
+    .split(',')
+    .map((v) => parseInt(v.trim()))
+    .filter((n) => Number.isFinite(n));
+}
+
+function parseCsvStrings(value: string): string[] {
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+export function DietDetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const cartItemId = searchParams.get('cartItemId');
+
+  const isMobile = useIsMobile();
+
+  const { isAdmin } = useAuth();
+  const { getDietById, updateDiet, deleteDiet } = useData();
+  const { items, addItem, updateItem } = useCart();
+
+  const diet = id ? getDietById(id) : null;
+  const editingItem = useMemo(() => (cartItemId ? items.find((i) => i.id === cartItemId) ?? null : null), [cartItemId, items]);
+
+  const [selectedCalories, setSelectedCalories] = useState(() => {
+    if (editingItem && diet) return editingItem.calories;
+    return diet?.calorieOptions[0] ?? 1500;
+  });
+  const [selectedDays, setSelectedDays] = useState(() => (editingItem ? editingItem.days : 5));
+  const [startDate, setStartDate] = useState<Date | undefined>(() => {
+    if (!editingItem?.startDate) return undefined;
+    const d = new Date(editingItem.startDate);
+    return isNaN(d.getTime()) ? undefined : d;
+  });
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  const [adminEditOpen, setAdminEditOpen] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminForm, setAdminForm] = useState(() => ({
+    name: diet?.name ?? '',
+    shortDescription: diet?.shortDescription ?? '',
+    description: diet?.description ?? '',
+    image: diet?.image ?? '',
+    images: diet?.images?.join(', ') ?? '',
+    pricePerDay: String(diet?.pricePerDay ?? 59),
+    calorieOptions: diet?.calorieOptions?.join(', ') ?? '1500, 2000',
+    goal: diet?.goal ?? '',
+    tags: diet?.tags?.join(', ') ?? '',
+    allergens: diet?.allergens?.join(', ') ?? '',
+    sampleMenu: diet?.sampleMenu?.join('\n') ?? '',
+  }));
+
+  const openAdminEdit = () => {
+    if (!diet) return;
+    setAdminError(null);
+    setAdminForm({
+      name: diet.name,
+      shortDescription: diet.shortDescription,
+      description: diet.description,
+      image: diet.image,
+      images: diet.images.join(', '),
+      pricePerDay: String(diet.pricePerDay),
+      calorieOptions: diet.calorieOptions.join(', '),
+      goal: diet.goal ?? '',
+      tags: diet.tags.join(', '),
+      allergens: diet.allergens.join(', '),
+      sampleMenu: diet.sampleMenu.join('\n'),
+    });
+    setAdminEditOpen(true);
+  };
+
+  if (!diet) {
+    return (
+      <div className="container mx-auto max-w-screen-2xl px-8 py-8">
+        <p>Dieta nie została znaleziona</p>
+        <Link to="/diety" className="text-primary hover:underline">
+          Wróć do listy diet
+        </Link>
+      </div>
+    );
+  }
+
+  const totalPrice = diet.pricePerDay * selectedDays;
+
+  const startDateIso = startDate ? format(startDate, 'yyyy-MM-dd') : '';
+  const startDateLabel = startDate ? format(startDate, 'dd.MM.yyyy', { locale: pl }) : '';
+
+  const handleAddToCart = () => {
+    if (!startDateIso) return;
+    if (editingItem) {
+      updateItem(editingItem.id, {
+        dietId: diet.id,
+        calories: selectedCalories,
+        days: selectedDays,
+        startDate: startDateIso,
+      });
+    } else {
+      addItem({
+        dietId: diet.id,
+        calories: selectedCalories,
+        days: selectedDays,
+        startDate: startDateIso,
+      });
+    }
+    navigate('/koszyk');
+  };
+
+  const nextImage = () => {
+    setCurrentImageIndex((prev) => (prev + 1) % diet.images.length);
+  };
+
+  const prevImage = () => {
+    setCurrentImageIndex((prev) => (prev - 1 + diet.images.length) % diet.images.length);
+  };
+
+  return (
+    <div className="container mx-auto max-w-screen-2xl px-8 py-8">
+      <Breadcrumbs
+        items={[
+          { label: 'Strona główna', to: '/' },
+          { label: 'Diety', to: '/diety' },
+          { label: diet.name },
+        ]}
+      />
+
+      {isAdmin && (
+        <div className="bg-white border border-border rounded-xl p-6 mb-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-bold">Tryb administratora</div>
+              <div className="text-sm text-muted-foreground">Edycja istniejącej diety bezpośrednio z poziomu widoku szczegółów.</div>
+            </div>
+            {!adminEditOpen ? (
+              <button
+                type="button"
+                onClick={openAdminEdit}
+                className="px-4 py-2 border border-border rounded-lg hover:bg-secondary"
+              >
+                Edytuj dietę
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminEditOpen(false);
+                  setAdminError(null);
+                }}
+                className="px-4 py-2 border border-border rounded-lg hover:bg-secondary"
+              >
+                Zamknij edycję
+              </button>
+            )}
+          </div>
+
+          {adminEditOpen && (
+            <form
+              className="mt-6 space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setAdminError(null);
+                if (!diet) return;
+
+                const price = parseInt(adminForm.pricePerDay);
+                const calories = parseCsvNumbers(adminForm.calorieOptions);
+                if (!adminForm.name.trim() || !adminForm.shortDescription.trim() || !adminForm.description.trim()) {
+                  setAdminError('Uzupełnij: nazwa, krótki opis, opis.');
+                  return;
+                }
+                if (!Number.isFinite(price) || price <= 0) {
+                  setAdminError('Podaj poprawną cenę / dzień.');
+                  return;
+                }
+                if (calories.length === 0) {
+                  setAdminError('Podaj co najmniej jedną kaloryczność (CSV).');
+                  return;
+                }
+
+                const images = parseCsvStrings(adminForm.images);
+
+                updateDiet(diet.id, {
+                  name: adminForm.name.trim(),
+                  shortDescription: adminForm.shortDescription.trim(),
+                  description: adminForm.description.trim(),
+                  image: adminForm.image.trim() || diet.image,
+                  images: images.length ? images : (adminForm.image.trim() ? [adminForm.image.trim()] : diet.images),
+                  pricePerDay: price,
+                  calorieOptions: calories,
+                  goal: adminForm.goal.trim() || undefined,
+                  tags: parseCsvStrings(adminForm.tags),
+                  allergens: parseCsvStrings(adminForm.allergens),
+                  sampleMenu: adminForm.sampleMenu
+                    .split('\n')
+                    .map((l) => l.trim())
+                    .filter(Boolean),
+                });
+
+                setAdminEditOpen(false);
+              }}
+            >
+              {adminError && (
+                <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3">{adminError}</div>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Nazwa</label>
+                  <input
+                    value={adminForm.name}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Cena / dzień (zł)</label>
+                  <input
+                    value={adminForm.pricePerDay}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, pricePerDay: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">Krótki opis</label>
+                  <input
+                    value={adminForm.shortDescription}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, shortDescription: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">Opis</label>
+                  <textarea
+                    value={adminForm.description}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, description: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg min-h-[120px]"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">URL miniatury</label>
+                  <input
+                    value={adminForm.image}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, image: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">URL zdjęć (CSV)</label>
+                  <input
+                    value={adminForm.images}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, images: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    placeholder="url1, url2, url3"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Kaloryczności (CSV)</label>
+                  <input
+                    value={adminForm.calorieOptions}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, calorieOptions: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    placeholder="1500, 2000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Cel</label>
+                  <input
+                    value={adminForm.goal}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, goal: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    placeholder="Utrata wagi / Budowa masy mięśniowej / Zdrowe odżywianie"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">Tagi (CSV)</label>
+                  <input
+                    value={adminForm.tags}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, tags: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    placeholder="Wegetariańska, Keto..."
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">Alergeny (CSV)</label>
+                  <input
+                    value={adminForm.allergens}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, allergens: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">Przykładowe menu (1 linia = 1 pozycja)</label>
+                  <textarea
+                    value={adminForm.sampleMenu}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, sampleMenu: e.target.value }))}
+                    className="w-full px-4 py-2 border border-border rounded-lg min-h-[140px]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <button type="submit" className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90">
+                  Zapisz zmiany
+                </button>
+                <button
+                  type="button"
+                  className="px-6 py-3 border border-border rounded-lg hover:bg-destructive/10 text-destructive"
+                  onClick={() => {
+                    if (!diet) return;
+                    if (confirm(`Usunąć dietę: ${diet.name}?`)) {
+                      deleteDiet(diet.id);
+                      navigate('/diety', { replace: true });
+                    }
+                  }}
+                >
+                  Usuń dietę
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-2 gap-8 mb-12">
+        <div>
+          <div className="relative aspect-video bg-secondary rounded-xl overflow-hidden mb-4">
+            <img
+              src={diet.images[currentImageIndex]}
+              alt={diet.name}
+              className="w-full h-full object-cover"
+            />
+            {diet.images.length > 1 && (
+              <>
+                <button
+                  onClick={prevImage}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white/80 rounded-lg hover:bg-white"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  onClick={nextImage}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white/80 rounded-lg hover:bg-white"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
+            )}
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {diet.images.map((img, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentImageIndex(i)}
+                className={`aspect-square rounded-lg overflow-hidden border-2 ${
+                  i === currentImageIndex ? 'border-primary' : 'border-transparent'
+                }`}
+              >
+                <img src={img} alt={`${diet.name} ${i + 1}`} className="w-full h-full object-cover" />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <h1 className="text-3xl font-bold mb-4">{diet.name}</h1>
+
+          <div className="flex flex-wrap gap-3 mb-6">
+            <div className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg">
+              <Flame className="w-5 h-5 text-primary" />
+              <span className="text-sm">
+                {diet.calorieOptions[0]} - {diet.calorieOptions[diet.calorieOptions.length - 1]} kcal
+              </span>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg">
+              <Leaf className="w-5 h-5 text-primary" />
+              <span className="text-sm">{diet.tags.join(', ')}</span>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg">
+              <Calendar className="w-5 h-5 text-primary" />
+              <span className="text-sm">5 posiłków</span>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg">
+              <Truck className="w-5 h-5 text-primary" />
+              <span className="text-sm">Dostawa codziennie</span>
+            </div>
+          </div>
+
+          <p className="text-muted-foreground mb-6">{diet.description}</p>
+
+          <div className="bg-white border border-border rounded-xl p-6">
+            <h3 className="font-bold mb-4">Wybierz swoją dietę</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Kaloryczność</label>
+                <select
+                  value={selectedCalories}
+                  onChange={(e) => setSelectedCalories(parseInt(e.target.value))}
+                  className="w-full px-4 py-2 border border-border rounded-lg"
+                >
+                  {diet.calorieOptions.map((cal) => (
+                    <option key={cal} value={cal}>
+                      {cal} kcal
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Liczba dni</label>
+                <select
+                  value={selectedDays}
+                  onChange={(e) => setSelectedDays(parseInt(e.target.value))}
+                  className="w-full px-4 py-2 border border-border rounded-lg"
+                >
+                  {[5, 10, 14, 21, 28].map((days) => (
+                    <option key={days} value={days}>
+                      {days} dni
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Data rozpoczęcia</label>
+                <div className="border border-border rounded-lg overflow-x-auto">
+                  <CalendarPicker
+                    mode="single"
+                    selected={startDate}
+                    onSelect={setStartDate}
+                    numberOfMonths={isMobile ? 1 : 2}
+                    className="w-full"
+                    disabled={(date) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      return date < today;
+                    }}
+                  />
+                </div>
+                {startDateLabel && (
+                  <div className="text-sm text-muted-foreground mt-2">Wybrano: {startDateLabel}</div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-border">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-muted-foreground">Cena dzienna</span>
+                  <span className="font-bold text-xl text-primary">{diet.pricePerDay} zł</span>
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm text-muted-foreground">Razem ({selectedDays} dni)</span>
+                  <span className="font-bold text-xl">{totalPrice} zł</span>
+                </div>
+                <button
+                  onClick={handleAddToCart}
+                  disabled={!startDateIso}
+                  className="w-full py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {editingItem ? 'ZAPISZ ZMIANY' : 'DODAJ DO KOSZYKA'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-4 gap-6 mb-12">
+        <div className="bg-white border border-border rounded-xl p-6">
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+            <Flame className="w-6 h-6 text-primary" />
+          </div>
+          <h3 className="font-bold mb-2">Makroskładniki</h3>
+          <p className="text-sm text-muted-foreground">Zrównoważone proporcje białka, tłuszczy i węglowodanów</p>
+        </div>
+
+        <div className="bg-white border border-border rounded-xl p-6">
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+            <Calendar className="w-6 h-6 text-primary" />
+          </div>
+          <h3 className="font-bold mb-2">Przykładowe menu</h3>
+          <p className="text-sm text-muted-foreground">Różnorodne posiłki na każdy dzień tygodnia</p>
+        </div>
+
+        <div className="bg-white border border-border rounded-xl p-6">
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+            <Leaf className="w-6 h-6 text-primary" />
+          </div>
+          <h3 className="font-bold mb-2">Alergeny</h3>
+          <p className="text-sm text-muted-foreground">{diet.allergens.join(', ')}</p>
+        </div>
+
+        <div className="bg-white border border-border rounded-xl p-6">
+          <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+            <Truck className="w-6 h-6 text-primary" />
+          </div>
+          <h3 className="font-bold mb-2">Dostawa</h3>
+          <p className="text-sm text-muted-foreground">Codziennie rano, bez dodatkowych opłat</p>
+        </div>
+      </div>
+
+      <div className="bg-white border border-border rounded-xl p-6">
+        <h3 className="font-bold mb-4">Przykładowe menu</h3>
+        <ul className="space-y-2">
+          {diet.sampleMenu.map((item, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className="w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center text-sm text-primary flex-shrink-0">
+                {i + 1}
+              </span>
+              <span className="text-muted-foreground">{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}

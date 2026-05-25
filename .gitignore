@@ -1,0 +1,54 @@
+# Node modules
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Vite cache
+.vite/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Env files
+.env*
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# pnpm
+pnpm-lock.yaml
+
+# OS junk
+*.orig
+
+# Coverage
+coverage/
+
+# Misc
+*.local
+
+# Mac system files
+.AppleDouble
+.LSOverride
+
+# Windows system files
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+
+# Optional: ignore test snapshots
+__snapshots__/
