@@ -26,8 +26,8 @@ function sanitizeProfile(profile: Partial<UserProfile>): Partial<UserProfile> {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [users, setUsers] = useState<AppUser[]>(() => {
-    const stored = readJson<AppUser[]>(USERS_KEY, []);
-    if (stored.length > 0) return stored;
+    const stored = readJson<AppUser[] | null>(USERS_KEY, null);
+    if (stored !== null) return stored;
     writeJson<AppUser[]>(USERS_KEY, seedUsers);
     return seedUsers;
   });
@@ -123,6 +123,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : u,
         );
         persistUsers(nextUsers);
+        return { ok: true };
+      },
+
+      resetPassword: ({ email, newPassword }) => {
+        const normalizedEmail = normalizeEmail(email);
+        const userToUpdate = users.find((u) => u.email === normalizedEmail);
+        if (!userToUpdate) {
+          return { ok: false, error: "Nie znaleziono konta z tym adresem e-mail." };
+        }
+        if (!newPassword || newPassword.length < 4) {
+          return { ok: false, error: "Hasło musi mieć min. 4 znaki (demo)." };
+        }
+
+        persistUsers(users.map((u) => (u.id === userToUpdate.id ? { ...u, password: newPassword } : u)));
+        return { ok: true };
+      },
+
+      changePassword: ({ currentPassword, newPassword }) => {
+        if (!currentUser) return { ok: false, error: "Musisz być zalogowany." };
+        if (currentUser.password !== currentPassword) {
+          return { ok: false, error: "Bieżące hasło jest nieprawidłowe." };
+        }
+        if (!newPassword || newPassword.length < 4) {
+          return { ok: false, error: "Nowe hasło musi mieć min. 4 znaki (demo)." };
+        }
+        if (newPassword === currentPassword) {
+          return { ok: false, error: "Nowe hasło musi różnić się od bieżącego." };
+        }
+
+        persistUsers(users.map((u) => (u.id === currentUser.id ? { ...u, password: newPassword } : u)));
         return { ok: true };
       },
 

@@ -1,3 +1,8 @@
+export interface DietVariant {
+  calories: number;
+  pricePerDay: number;
+}
+
 export interface Diet {
   id: string;
   name: string;
@@ -5,8 +10,7 @@ export interface Diet {
   shortDescription: string;
   image: string;
   images: string[];
-  calorieOptions: number[];
-  pricePerDay: number;
+  variants: DietVariant[];
   tags: string[];
   goal?: string;
   allergens: string[];
@@ -32,6 +36,7 @@ export interface CartState {
 export type OrderStatus = "Nowe" | "W trakcie" | "Dostarczone" | "Anulowane";
 
 export type PaymentMethod = "Karta" | "BLIK" | "Przelew";
+export type PaymentStatus = "Oczekuje na płatność" | "Opłacone" | "Nieudane" | "Zwrócone";
 
 export interface OrderItem {
   dietId: string;
@@ -74,6 +79,7 @@ export interface Order {
   total: number;
 
   paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
 }
 
 export type UserRole = "customer" | "admin";
@@ -110,6 +116,17 @@ export interface Review {
   createdAt: string;
 }
 
+export type DiscountKind = "percentage" | "fixed";
+
+export interface DiscountCode {
+  id: string;
+  code: string;
+  kind: DiscountKind;
+  value: number;
+  active: boolean;
+  createdAt: string;
+}
+
 export type Result<T> = { ok: true; value?: T } | { ok: false; error: string };
 
 export interface AuthContextValue {
@@ -134,6 +151,8 @@ export interface AuthContextValue {
   logout: () => void;
 
   updateProfile: (patch: Partial<UserProfile>) => Result<void>;
+  resetPassword: (input: { email: string; newPassword: string }) => Result<void>;
+  changePassword: (input: { currentPassword: string; newPassword: string }) => Result<void>;
   setUserRole: (userId: string, role: UserRole) => void;
 }
 
@@ -173,6 +192,7 @@ export interface DataContextValue {
   diets: Diet[];
   orders: Order[];
   reviews: Review[];
+  discountCodes: DiscountCode[];
 
   getDietById: (dietId: string) => Diet | null;
   addDiet: (diet: Omit<Diet, "id" | "createdAt" | "updatedAt">) => Diet;
@@ -184,4 +204,8 @@ export interface DataContextValue {
 
   upsertReview: (input: ReviewUpsertInput) => void;
   getReviewsForDiet: (dietId: string) => Review[];
+
+  addDiscountCode: (input: { code: string; kind: DiscountKind; value: number }) => Result<void>;
+  setDiscountCodeActive: (discountCodeId: string, active: boolean) => void;
+  deleteDiscountCode: (discountCodeId: string) => void;
 }

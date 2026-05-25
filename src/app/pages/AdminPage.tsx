@@ -1,12 +1,27 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
-import { ShoppingCart, Users, Calendar, Truck, TrendingUp } from 'lucide-react';
+import { ListPagination } from '../components/ListPagination';
+import { OrderDetailsDialog } from '../components/OrderDetailsDialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
+import { ShoppingCart, Users, Calendar, Truck, TrendingUp, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../providers/DataProvider';
 import { useAuth } from '../providers/AuthProvider';
-import type { Diet, OrderStatus } from '../types';
+import type { Diet, DiscountKind, OrderStatus, PaymentStatus } from '../types';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import { formatVariantsInput, getMinPrice, parseVariantsInput } from '../lib/dietVariants';
+import { toast } from 'sonner';
 
 function formatDateTime(iso: string): string {
   try {
@@ -16,13 +31,6 @@ function formatDateTime(iso: string): string {
   }
 }
 
-function parseCsvNumbers(value: string): number[] {
-  return value
-    .split(',')
-    .map((v) => parseInt(v.trim()))
-    .filter((n) => Number.isFinite(n));
-}
-
 function parseCsvStrings(value: string): string[] {
   return value
     .split(',')
@@ -30,9 +38,29 @@ function parseCsvStrings(value: string): string[] {
     .filter(Boolean);
 }
 
+function paymentStatusClasses(status: PaymentStatus): string {
+  if (status === 'Opłacone') return 'bg-primary/10 text-primary';
+  if (status === 'Oczekuje na płatność') return 'bg-accent/15 text-accent';
+  if (status === 'Zwrócone') return 'bg-secondary text-muted-foreground';
+  return 'bg-destructive/10 text-destructive';
+}
+
+const ADMIN_DEFAULT_PAGE_SIZE = 5;
+
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const { diets, orders, addDiet, updateDiet, deleteDiet, updateOrderStatus } = useData();
+  const {
+    diets,
+    orders,
+    discountCodes,
+    addDiet,
+    updateDiet,
+    deleteDiet,
+    updateOrderStatus,
+    addDiscountCode,
+    setDiscountCodeActive,
+    deleteDiscountCode,
+  } = useData();
   const { users } = useAuth();
 
   const chartData = useMemo(() => {
@@ -61,6 +89,66 @@ export function AdminPage() {
 
   const totalRevenue = useMemo(() => orders.reduce((sum, o) => sum + o.total, 0), [orders]);
   const customersCount = useMemo(() => users.filter((u) => u.role === 'customer').length, [users]);
+  const sortedOrders = useMemo(
+    () => [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [orders],
+  );
+  const sortedDiets = useMemo(
+    () => [...diets].sort((a, b) => a.name.localeCompare(b.name, 'pl')),
+    [diets],
+  );
+  const sortedClients = useMemo(
+    () =>
+      [...users].sort((a, b) =>
+        `${a.profile.firstName} ${a.profile.lastName}`.localeCompare(
+          `${b.profile.firstName} ${b.profile.lastName}`,
+          'pl',
+        ),
+      ),
+    [users],
+  );
+  const sortedDiscountCodes = useMemo(
+    () => [...discountCodes].sort((a, b) => a.code.localeCompare(b.code, 'pl')),
+    [discountCodes],
+  );
+  const popularDiets = useMemo(
+    () =>
+      [...diets]
+        .map((diet) => ({
+          diet,
+          orderCount: orders.filter((order) =>
+            order.items.some((item) => item.dietId === diet.id),
+          ).length,
+        }))
+        .sort((a, b) => b.orderCount - a.orderCount || a.diet.name.localeCompare(b.diet.name, 'pl'))
+        .slice(0, 5),
+    [diets, orders],
+  );
+
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [dietsPage, setDietsPage] = useState(1);
+  const [clientsPage, setClientsPage] = useState(1);
+  const [discountsPage, setDiscountsPage] = useState(1);
+  const [ordersPerPage, setOrdersPerPage] = useState(ADMIN_DEFAULT_PAGE_SIZE);
+  const [dietsPerPage, setDietsPerPage] = useState(ADMIN_DEFAULT_PAGE_SIZE);
+  const [clientsPerPage, setClientsPerPage] = useState(ADMIN_DEFAULT_PAGE_SIZE);
+  const [discountsPerPage, setDiscountsPerPage] = useState(ADMIN_DEFAULT_PAGE_SIZE);
+  const ordersTotalPages = Math.max(1, Math.ceil(orders.length / ordersPerPage));
+  const dietsTotalPages = Math.max(1, Math.ceil(sortedDiets.length / dietsPerPage));
+  const clientsTotalPages = Math.max(1, Math.ceil(sortedClients.length / clientsPerPage));
+  const discountsTotalPages = Math.max(1, Math.ceil(sortedDiscountCodes.length / discountsPerPage));
+  const paginatedOrders = sortedOrders.slice((ordersPage - 1) * ordersPerPage, ordersPage * ordersPerPage);
+  const paginatedDiets = sortedDiets.slice((dietsPage - 1) * dietsPerPage, dietsPage * dietsPerPage);
+  const paginatedClients = sortedClients.slice((clientsPage - 1) * clientsPerPage, clientsPage * clientsPerPage);
+  const paginatedDiscountCodes = sortedDiscountCodes.slice(
+    (discountsPage - 1) * discountsPerPage,
+    discountsPage * discountsPerPage,
+  );
+
+  useEffect(() => setOrdersPage((page) => Math.min(page, ordersTotalPages)), [ordersTotalPages]);
+  useEffect(() => setDietsPage((page) => Math.min(page, dietsTotalPages)), [dietsTotalPages]);
+  useEffect(() => setClientsPage((page) => Math.min(page, clientsTotalPages)), [clientsTotalPages]);
+  useEffect(() => setDiscountsPage((page) => Math.min(page, discountsTotalPages)), [discountsTotalPages]);
 
   const [editingDietId, setEditingDietId] = useState<string | null>(null);
   const editingDiet = editingDietId ? diets.find((d) => d.id === editingDietId) ?? null : null;
@@ -70,13 +158,18 @@ export function AdminPage() {
     description: '',
     image: '',
     images: '',
-    pricePerDay: '59',
-    calorieOptions: '1500, 2000',
+    variants: '1500:59, 2000:69',
     goal: 'Zdrowe odżywianie',
     tags: 'Zdrowe odżywianie',
     allergens: '',
     sampleMenu: '',
   }));
+  const [discountForm, setDiscountForm] = useState<{ code: string; kind: DiscountKind; value: string }>({
+    code: '',
+    kind: 'percentage',
+    value: '10',
+  });
+  const [discountError, setDiscountError] = useState<string | null>(null);
 
   const loadDietToForm = (diet: Diet) => {
     setDietForm({
@@ -85,8 +178,7 @@ export function AdminPage() {
       description: diet.description,
       image: diet.image,
       images: diet.images.join(', '),
-      pricePerDay: String(diet.pricePerDay),
-      calorieOptions: diet.calorieOptions.join(', '),
+      variants: formatVariantsInput(diet.variants),
       goal: diet.goal ?? '',
       tags: diet.tags.join(', '),
       allergens: diet.allergens.join(', '),
@@ -102,8 +194,7 @@ export function AdminPage() {
       description: '',
       image: '',
       images: '',
-      pricePerDay: '59',
-      calorieOptions: '1500, 2000',
+      variants: '1500:59, 2000:69',
       goal: 'Zdrowe odżywianie',
       tags: 'Zdrowe odżywianie',
       allergens: '',
@@ -117,6 +208,7 @@ export function AdminPage() {
     { id: 'diets', label: 'Diety', icon: Calendar },
     { id: 'clients', label: 'Klienci', icon: Users },
     { id: 'deliveries', label: 'Dostawy', icon: Truck },
+    { id: 'discounts', label: 'Rabaty', icon: Percent },
   ];
 
   return (
@@ -211,6 +303,7 @@ export function AdminPage() {
                       <Area
                         type="monotone"
                         dataKey="orders"
+                        name="Zamówienia"
                         stroke="#2F6B3B"
                         fill="#8BCF7A"
                         fillOpacity={0.3}
@@ -222,7 +315,7 @@ export function AdminPage() {
                 <div className="bg-white border border-border rounded-xl p-6">
                   <h3 className="font-bold mb-4">NAJPOPULARNIEJSZE DIETY</h3>
                   <div className="space-y-3">
-                    {diets.slice(0, 5).map((diet, index) => (
+                    {popularDiets.map(({ diet, orderCount }, index) => (
                       <div key={diet.id} className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <span className="text-2xl font-bold text-muted-foreground">
@@ -231,7 +324,7 @@ export function AdminPage() {
                           <span className="font-medium">{diet.name}</span>
                         </div>
                         <span className="text-primary font-bold">
-                          {orders.filter((o) => o.items.some((it) => it.dietId === diet.id)).length} zamówień
+                          {orderCount} zamówień
                         </span>
                       </div>
                     ))}
@@ -242,7 +335,7 @@ export function AdminPage() {
               <div className="bg-white border border-border rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold">OSTATNIE ZAMÓWIENIA</h3>
-                  <button className="text-sm text-primary hover:underline">
+                  <button type="button" onClick={() => setActiveTab('orders')} className="text-sm text-primary hover:underline">
                     Zobacz wszystkie zamówienia →
                   </button>
                 </div>
@@ -260,7 +353,7 @@ export function AdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {orders.slice(0, 8).map((order) => (
+                      {sortedOrders.slice(0, 5).map((order) => (
                         <tr key={order.id} className="border-b border-border last:border-b-0">
                           <td className="px-4 py-3">#{order.id}</td>
                           <td className="px-4 py-3">{order.customer.firstName} {order.customer.lastName}</td>
@@ -281,7 +374,14 @@ export function AdminPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <button className="text-primary hover:underline text-sm" onClick={() => setActiveTab('orders')}>Szczegóły</button>
+                            <OrderDetailsDialog
+                              order={order}
+                              trigger={(
+                                <button type="button" className="text-primary hover:underline text-sm">
+                                  Szczegóły
+                                </button>
+                              )}
+                            />
                           </td>
                         </tr>
                       ))}
@@ -299,35 +399,68 @@ export function AdminPage() {
                 {orders.length === 0 ? (
                   <p className="text-muted-foreground">Brak zamówień.</p>
                 ) : (
+                  <>
                   <div className="space-y-4">
-                    {orders.map((order) => (
+                    {paginatedOrders.map((order) => (
                       <div key={order.id} className="border border-border rounded-xl p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <div className="font-bold">#{order.id} • {order.customer.firstName} {order.customer.lastName}</div>
                             <div className="text-sm text-muted-foreground">{formatDateTime(order.createdAt)} • {order.customer.email}</div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="font-bold text-primary">{order.total} zł</div>
-                            <select
-                              value={order.status}
-                              onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
-                              className="px-3 py-2 border border-border rounded-lg"
-                            >
-                              {(['Nowe', 'W trakcie', 'Dostarczone', 'Anulowane'] as OrderStatus[]).map((s) => (
-                                <option key={s} value={s}>{s}</option>
-                              ))}
-                            </select>
+                          <div className="flex flex-wrap items-end justify-end gap-3">
+                            <div className="text-right mr-2">
+                              <div className="text-xs text-muted-foreground">Łączna kwota zamówienia</div>
+                              <div className="font-bold text-lg text-primary">{order.total} zł</div>
+                            </div>
+                            <label className="text-xs text-muted-foreground">
+                              Status realizacji
+                              <select
+                                value={order.status}
+                                onChange={(e) => {
+                                  const status = e.target.value as OrderStatus;
+                                  updateOrderStatus(order.id, status);
+                                  toast.success(`Zmieniono status zamówienia na: ${status}.`);
+                                }}
+                                className="block mt-1 px-3 py-2 border border-border rounded-lg text-foreground bg-white"
+                              >
+                                {(['Nowe', 'W trakcie', 'Dostarczone', 'Anulowane'] as OrderStatus[]).map((s) => (
+                                  <option key={s} value={s}>{s}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Status płatności</div>
+                              <span className={`inline-flex px-3 py-2 rounded-full text-sm font-medium ${paymentStatusClasses(order.paymentStatus)}`}>
+                                {order.paymentStatus}
+                              </span>
+                            </div>
+                            <OrderDetailsDialog
+                              order={order}
+                              trigger={(
+                                <button type="button" className="px-3 py-2 text-sm text-primary hover:underline">
+                                  Szczegóły
+                                </button>
+                              )}
+                            />
                           </div>
                         </div>
 
-                        <div className="mt-3 text-sm">
-                          <div className="text-muted-foreground">Dostawa: {order.delivery.addressLine1}, {order.delivery.addressPostalCode} {order.delivery.addressCity}</div>
-                          <div className="mt-2 space-y-1">
+                        <div className="mt-4 border-t border-border pt-4 text-sm">
+                          <div className="text-muted-foreground">
+                            <span className="font-medium text-foreground">Adres dostawy:</span> {order.delivery.addressLine1}, {order.delivery.addressPostalCode} {order.delivery.addressCity}
+                          </div>
+                          <div className="text-muted-foreground mt-1">
+                            <span className="font-medium text-foreground">Uwagi:</span> {order.delivery.notes?.trim() || 'Brak uwag'}
+                          </div>
+                          <div className="text-muted-foreground mt-1">
+                            <span className="font-medium text-foreground">Metoda płatności:</span> {order.paymentMethod}
+                          </div>
+                          <div className="mt-4 space-y-2">
                             {order.items.map((it, idx) => (
                               <div key={idx} className="flex justify-between">
                                 <span>{it.dietName} • {it.calories} kcal • {it.days} dni • start: {it.startDate}</span>
-                                <span className="font-medium">{it.pricePerDay * it.days} zł</span>
+                                <span className="font-medium">Wartość pozycji: {it.pricePerDay * it.days} zł</span>
                               </div>
                             ))}
                           </div>
@@ -335,6 +468,15 @@ export function AdminPage() {
                       </div>
                     ))}
                   </div>
+                  <ListPagination
+                    currentPage={ordersPage}
+                    totalPages={ordersTotalPages}
+                    onPageChange={setOrdersPage}
+                    itemsPerPage={ordersPerPage}
+                    onItemsPerPageChange={setOrdersPerPage}
+                    totalItems={orders.length}
+                  />
+                  </>
                 )}
               </div>
             </div>
@@ -357,11 +499,11 @@ export function AdminPage() {
                 <div className="bg-white border border-border rounded-xl p-6">
                   <h3 className="font-bold mb-4">Lista diet</h3>
                   <div className="space-y-2">
-                    {diets.map((d) => (
+                    {paginatedDiets.map((d) => (
                       <div key={d.id} className="flex items-center justify-between border border-border rounded-lg p-3">
                         <div>
                           <div className="font-medium">{d.name}</div>
-                          <div className="text-sm text-muted-foreground">{d.pricePerDay} zł/dzień • {d.goal ?? '-'}</div>
+                          <div className="text-sm text-muted-foreground">od {getMinPrice(d)} zł/dzień • {d.goal ?? '-'}</div>
                         </div>
                         <div className="flex gap-2">
                           <button
@@ -374,22 +516,49 @@ export function AdminPage() {
                           >
                             Edytuj
                           </button>
-                          <button
-                            type="button"
-                            className="px-3 py-2 border border-border rounded-lg hover:bg-destructive/10 text-destructive"
-                            onClick={() => {
-                              if (confirm(`Usunąć dietę: ${d.name}?`)) {
-                                deleteDiet(d.id);
-                                if (editingDietId === d.id) resetDietForm();
-                              }
-                            }}
-                          >
-                            Usuń
-                          </button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <button
+                                type="button"
+                                className="px-3 py-2 border border-border rounded-lg hover:bg-destructive/10 text-destructive"
+                              >
+                                Usuń
+                              </button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Usunąć dietę?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Dieta „{d.name}” zniknie z oferty. Tej akcji nie można cofnąć.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Anuluj</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-destructive text-white hover:bg-destructive/90"
+                                  onClick={() => {
+                                    deleteDiet(d.id);
+                                    if (editingDietId === d.id) resetDietForm();
+                                    toast.success('Dieta została usunięta.');
+                                  }}
+                                >
+                                  Usuń
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </div>
                     ))}
                   </div>
+                  <ListPagination
+                    currentPage={dietsPage}
+                    totalPages={dietsTotalPages}
+                    onPageChange={setDietsPage}
+                    itemsPerPage={dietsPerPage}
+                    onItemsPerPageChange={setDietsPerPage}
+                    totalItems={sortedDiets.length}
+                  />
                 </div>
 
                 <div className="bg-white border border-border rounded-xl p-6">
@@ -399,19 +568,19 @@ export function AdminPage() {
                     onSubmit={(e) => {
                       e.preventDefault();
 
-                      const price = parseInt(dietForm.pricePerDay);
-                      const calories = parseCsvNumbers(dietForm.calorieOptions);
+                      const variants = parseVariantsInput(dietForm.variants);
                       if (!dietForm.name.trim() || !dietForm.shortDescription.trim() || !dietForm.description.trim()) return;
-                      if (!Number.isFinite(price) || calories.length === 0) return;
+                      if (variants.length === 0) return;
 
+                      const image = dietForm.image.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&h=600&fit=crop';
+                      const images = parseCsvStrings(dietForm.images);
                       const dietPayload = {
                         name: dietForm.name.trim(),
                         shortDescription: dietForm.shortDescription.trim(),
                         description: dietForm.description.trim(),
-                        image: dietForm.image.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&h=600&fit=crop',
-                        images: parseCsvStrings(dietForm.images).length ? parseCsvStrings(dietForm.images) : [dietForm.image.trim()].filter(Boolean),
-                        calorieOptions: calories,
-                        pricePerDay: price,
+                        image,
+                        images: images.length ? images : [image],
+                        variants,
                         tags: parseCsvStrings(dietForm.tags),
                         goal: dietForm.goal.trim() || undefined,
                         allergens: parseCsvStrings(dietForm.allergens),
@@ -423,8 +592,10 @@ export function AdminPage() {
 
                       if (editingDiet) {
                         updateDiet(editingDiet.id, dietPayload);
+                        toast.success('Dieta została zaktualizowana.');
                       } else {
                         addDiet(dietPayload);
+                        toast.success('Dieta została dodana.');
                       }
                       resetDietForm();
                     }}
@@ -433,10 +604,6 @@ export function AdminPage() {
                       <div>
                         <label className="block text-sm font-medium mb-2">Nazwa</label>
                         <input value={dietForm.name} onChange={(e) => setDietForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Cena / dzień (zł)</label>
-                        <input value={dietForm.pricePerDay} onChange={(e) => setDietForm((f) => ({ ...f, pricePerDay: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
                       </div>
                       <div className="sm:col-span-2">
                         <label className="block text-sm font-medium mb-2">Krótki opis</label>
@@ -454,9 +621,9 @@ export function AdminPage() {
                         <label className="block text-sm font-medium mb-2">URL zdjęć (CSV)</label>
                         <input value={dietForm.images} onChange={(e) => setDietForm((f) => ({ ...f, images: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="url1, url2, url3" />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Kaloryczności (CSV)</label>
-                        <input value={dietForm.calorieOptions} onChange={(e) => setDietForm((f) => ({ ...f, calorieOptions: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
+                      <div className="sm:col-span-2">
+                        <label className="block text-sm font-medium mb-2">Warianty: kaloryczność:cena / dzień (CSV)</label>
+                        <input value={dietForm.variants} onChange={(e) => setDietForm((f) => ({ ...f, variants: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="1500:69, 2000:79, 2500:89" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-2">Cel</label>
@@ -506,16 +673,24 @@ export function AdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map((u) => (
+                      {paginatedClients.map((u) => (
                         <tr key={u.id} className="border-b border-border last:border-b-0">
                           <td className="px-4 py-3">{u.email}</td>
                           <td className="px-4 py-3">{u.profile.firstName} {u.profile.lastName}</td>
-                          <td className="px-4 py-3">{u.role}</td>
+                          <td className="px-4 py-3">{u.role === 'admin' ? 'Administrator' : 'Klient'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <ListPagination
+                  currentPage={clientsPage}
+                  totalPages={clientsTotalPages}
+                  onPageChange={setClientsPage}
+                  itemsPerPage={clientsPerPage}
+                  onItemsPerPageChange={setClientsPerPage}
+                  totalItems={sortedClients.length}
+                />
               </div>
             </div>
           )}
@@ -525,8 +700,157 @@ export function AdminPage() {
               <h2 className="text-2xl font-bold mb-6">Dostawy</h2>
               <div className="bg-white border border-border rounded-xl p-6">
                 <p className="text-muted-foreground">
-                  W wersji bez backendu traktujemy dostawy jako część zamówienia (adres w zamówieniu).
+                  Dostawa jest darmowa dla zamówień powyżej 250 zł. W innym przypadku koszt dostawy wynosi 15 zł.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'discounts' && (
+            <div>
+              <h2 className="text-2xl font-bold mb-6">Rabaty</h2>
+              <div className="grid lg:grid-cols-2 gap-6">
+                <div className="bg-white border border-border rounded-xl p-6">
+                  <h3 className="font-bold mb-4">Dodaj kod rabatowy</h3>
+                  <form
+                    className="space-y-4"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setDiscountError(null);
+                      const result = addDiscountCode({
+                        code: discountForm.code,
+                        kind: discountForm.kind,
+                        value: Number(discountForm.value),
+                      });
+                      if (!result.ok) {
+                        setDiscountError(result.error);
+                        return;
+                      }
+                      setDiscountForm({ code: '', kind: 'percentage', value: '10' });
+                      toast.success('Kod rabatowy został utworzony.');
+                    }}
+                  >
+                    {discountError && (
+                      <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3">
+                        {discountError}
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Kod</label>
+                      <input
+                        value={discountForm.code}
+                        onChange={(e) => setDiscountForm((form) => ({ ...form, code: e.target.value.toUpperCase() }))}
+                        className="w-full px-4 py-2 border border-border rounded-lg uppercase"
+                        placeholder="NP. LATO20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Rodzaj rabatu</label>
+                      <select
+                        value={discountForm.kind}
+                        onChange={(e) => setDiscountForm((form) => ({ ...form, kind: e.target.value as DiscountKind }))}
+                        className="w-full px-4 py-2 border border-border rounded-lg bg-white"
+                      >
+                        <option value="percentage">Procent od produktów</option>
+                        <option value="fixed">Kwota od produktów</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        {discountForm.kind === 'percentage' ? 'Wartość (%)' : 'Wartość (zł)'}
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={discountForm.kind === 'percentage' ? '100' : undefined}
+                        value={discountForm.value}
+                        onChange={(e) => setDiscountForm((form) => ({ ...form, value: e.target.value }))}
+                        className="w-full px-4 py-2 border border-border rounded-lg"
+                      />
+                    </div>
+                    <button type="submit" className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90">
+                      Dodaj kod
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-white border border-border rounded-xl p-6">
+                  <h3 className="font-bold mb-4">Dostępne kody</h3>
+                  {discountCodes.length === 0 ? (
+                    <p className="text-muted-foreground">Brak utworzonych kodów rabatowych.</p>
+                  ) : (
+                    <>
+                    <div className="space-y-3">
+                      {paginatedDiscountCodes.map((discount) => (
+                        <div key={discount.id} className="border border-border rounded-lg p-4">
+                          <div className="flex flex-wrap justify-between items-start gap-3">
+                            <div>
+                              <div className="font-bold">{discount.code}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {discount.kind === 'percentage' && `${discount.value}% od produktów`}
+                                {discount.kind === 'fixed' && `${discount.value} zł od produktów`}
+                              </div>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-xs ${discount.active ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground'}`}>
+                              {discount.active ? 'Aktywny' : 'Nieaktywny'}
+                            </span>
+                          </div>
+                          <div className="flex gap-2 mt-4">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDiscountCodeActive(discount.id, !discount.active);
+                                toast.success(discount.active ? 'Kod rabatowy został wyłączony.' : 'Kod rabatowy został włączony.');
+                              }}
+                              className="px-3 py-2 border border-border rounded-lg hover:bg-secondary text-sm"
+                            >
+                              {discount.active ? 'Wyłącz' : 'Włącz'}
+                            </button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="px-3 py-2 border border-border rounded-lg hover:bg-destructive/10 text-destructive text-sm"
+                                >
+                                  Usuń
+                                </button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Usunąć kod rabatowy?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Kod „{discount.code}” przestanie być dostępny dla klientów. Tej akcji nie można cofnąć.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Anuluj</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-white hover:bg-destructive/90"
+                                    onClick={() => {
+                                      deleteDiscountCode(discount.id);
+                                      toast.success('Kod rabatowy został usunięty.');
+                                    }}
+                                  >
+                                    Usuń
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <ListPagination
+                      currentPage={discountsPage}
+                      totalPages={discountsTotalPages}
+                      onPageChange={setDiscountsPage}
+                      itemsPerPage={discountsPerPage}
+                      onItemsPerPageChange={setDiscountsPerPage}
+                      totalItems={sortedDiscountCodes.length}
+                    />
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}

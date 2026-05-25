@@ -14,7 +14,8 @@ import { CheckoutPage } from './pages/CheckoutPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { LegalPage } from './pages/LegalPage';
-import { RequireAdmin } from './components/ProtectedRoute';
+import { RequireAdmin, RequireGuest } from './components/ProtectedRoute';
+import { Toaster } from './components/ui/sonner';
 
 export default function App() {
   return (
@@ -29,8 +30,8 @@ export default function App() {
           <Route path="/zamowienie" element={<CheckoutPage />} />
           <Route path="/zamowienie/potwierdzenie/:id" element={<OrderConfirmationPage />} />
           <Route path="/konto" element={<AccountPage />} />
-          <Route path="/logowanie" element={<LoginPage />} />
-          <Route path="/rejestracja" element={<RegisterPage />} />
+          <Route path="/logowanie" element={<RequireGuest><LoginPage /></RequireGuest>} />
+          <Route path="/rejestracja" element={<RequireGuest><RegisterPage /></RequireGuest>} />
           <Route
             path="/admin"
             element={
@@ -40,11 +41,12 @@ export default function App() {
             }
           />
           <Route path="/dostawa" element={<DeliveryPage />} />
-          <Route path="/reset-hasla" element={<ResetPasswordPage />} />
+          <Route path="/reset-hasla" element={<RequireGuest><ResetPasswordPage /></RequireGuest>} />
           <Route path="/regulamin" element={<LegalPage title="Regulamin" />} />
           <Route path="/polityka-prywatnosci" element={<LegalPage title="Polityka prywatności" />} />
         </Routes>
       </Layout>
+      <Toaster position="top-right" richColors closeButton />
     </BrowserRouter>
   );
 }

@@ -1,13 +1,25 @@
 import React from 'react';
 import { Link } from 'react-router';
-import { Leaf, Clock, Truck, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Leaf, Clock, Truck, Star } from 'lucide-react';
 import { useData } from '../providers/DataProvider';
+import { getMinPrice } from '../lib/dietVariants';
+
+const REVIEWS_PER_PAGE = 3;
 
 export function HomePage() {
   const { diets, reviews } = useData();
   const featuredDiets = diets.slice(0, 4);
-  const minPrice = diets.length ? Math.min(...diets.map((d) => d.pricePerDay)) : 0;
-  const latestReviews = reviews.slice(0, 6);
+  const minPrice = diets.length ? Math.min(...diets.map(getMinPrice)) : 0;
+  const [reviewsPage, setReviewsPage] = React.useState(1);
+  const reviewsTotalPages = Math.max(1, Math.ceil(reviews.length / REVIEWS_PER_PAGE));
+  const paginatedReviews = reviews.slice(
+    (reviewsPage - 1) * REVIEWS_PER_PAGE,
+    reviewsPage * REVIEWS_PER_PAGE,
+  );
+
+  React.useEffect(() => {
+    setReviewsPage((page) => Math.min(page, reviewsTotalPages));
+  }, [reviewsTotalPages]);
 
   // Slider state
   const slides = [
@@ -161,12 +173,12 @@ export function HomePage() {
                   <p className="text-sm text-muted-foreground mb-4">{diet.shortDescription}</p>
                   <div className="flex items-center justify-between">
                     <span className="text-lg font-bold text-primary">
-                      od {diet.pricePerDay} zł / dzień
+                      od {getMinPrice(diet)} zł / dzień
                     </span>
                   </div>
-                  <button className="w-full mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                  <span className="block text-center w-full mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
                     ZOBACZ
-                  </button>
+                  </span>
                 </div>
               </Link>
             ))}
@@ -177,24 +189,44 @@ export function HomePage() {
       <section className="py-16">
         <div className="container mx-auto max-w-screen-2xl px-8">
           <h2 className="text-3xl font-bold text-center mb-12">Opinie klientów</h2>
-          <div className="grid md:grid-cols-3 gap-6">
-            {latestReviews.slice(0, 3).map((review) => (
-              <div key={review.id} className="bg-white border border-border rounded-xl p-6">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                    {review.authorName?.[0] ?? "U"}
-                  </div>
-                  <div>
-                    <div className="font-bold">{review.authorName}</div>
-                    <div className="flex gap-1 text-accent">
-                      {'★'.repeat(review.rating)}
-                      {'☆'.repeat(5 - review.rating)}
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              aria-label="Poprzednie opinie"
+              onClick={() => setReviewsPage((page) => Math.max(1, page - 1))}
+              disabled={reviewsPage === 1}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-white text-primary transition-colors hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+            <div className="grid flex-1 md:grid-cols-3 gap-6">
+              {paginatedReviews.map((review) => (
+                <div key={review.id} className="h-full bg-white border border-border rounded-xl p-6">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                      {review.authorName?.[0] ?? "U"}
+                    </div>
+                    <div>
+                      <div className="font-bold">{review.authorName}</div>
+                      <div className="flex gap-1 text-accent">
+                        {'★'.repeat(review.rating)}
+                        {'☆'.repeat(5 - review.rating)}
+                      </div>
                     </div>
                   </div>
+                  <p className="text-muted-foreground">{review.comment}</p>
                 </div>
-                <p className="text-muted-foreground">{review.comment}</p>
-              </div>
-            ))}
+              ))}
+            </div>
+            <button
+              type="button"
+              aria-label="Następne opinie"
+              onClick={() => setReviewsPage((page) => Math.min(reviewsTotalPages, page + 1))}
+              disabled={reviewsPage === reviewsTotalPages}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-white text-primary transition-colors hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
           </div>
         </div>
       </section>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { Eye, EyeOff } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { useAuth } from '../providers/AuthProvider';
+import { toast } from 'sonner';
 
 export function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +35,7 @@ export function RegisterPage() {
       setError(res.error);
       return;
     }
+    toast.success('Konto zostało utworzone.');
     navigate('/konto', { replace: true });
   };
 

@@ -3,19 +3,26 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { Breadcrumbs } from '../components/Breadcrumbs';
+import { DurationSelect } from '../components/DurationSelect';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
 import { Flame, Leaf, Calendar, Truck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Calendar as CalendarPicker } from '../components/ui/calendar';
 import { useIsMobile } from '../components/ui/use-mobile';
 import { useData } from '../providers/DataProvider';
 import { useCart } from '../providers/CartProvider';
 import { useAuth } from '../providers/AuthProvider';
-
-function parseCsvNumbers(value: string): number[] {
-  return value
-    .split(',')
-    .map((v) => parseInt(v.trim()))
-    .filter((n) => Number.isFinite(n));
-}
+import { formatVariantsInput, getVariantPrice, parseVariantsInput } from '../lib/dietVariants';
+import { toast } from 'sonner';
 
 function parseCsvStrings(value: string): string[] {
   return value
@@ -41,7 +48,7 @@ export function DietDetailPage() {
 
   const [selectedCalories, setSelectedCalories] = useState(() => {
     if (editingItem && diet) return editingItem.calories;
-    return diet?.calorieOptions[0] ?? 1500;
+    return diet?.variants[0].calories ?? 1500;
   });
   const [selectedDays, setSelectedDays] = useState(() => (editingItem ? editingItem.days : 5));
   const [startDate, setStartDate] = useState<Date | undefined>(() => {
@@ -59,8 +66,7 @@ export function DietDetailPage() {
     description: diet?.description ?? '',
     image: diet?.image ?? '',
     images: diet?.images?.join(', ') ?? '',
-    pricePerDay: String(diet?.pricePerDay ?? 59),
-    calorieOptions: diet?.calorieOptions?.join(', ') ?? '1500, 2000',
+    variants: diet ? formatVariantsInput(diet.variants) : '1500:59, 2000:69',
     goal: diet?.goal ?? '',
     tags: diet?.tags?.join(', ') ?? '',
     allergens: diet?.allergens?.join(', ') ?? '',
@@ -76,8 +82,7 @@ export function DietDetailPage() {
       description: diet.description,
       image: diet.image,
       images: diet.images.join(', '),
-      pricePerDay: String(diet.pricePerDay),
-      calorieOptions: diet.calorieOptions.join(', '),
+      variants: formatVariantsInput(diet.variants),
       goal: diet.goal ?? '',
       tags: diet.tags.join(', '),
       allergens: diet.allergens.join(', '),
@@ -97,7 +102,8 @@ export function DietDetailPage() {
     );
   }
 
-  const totalPrice = diet.pricePerDay * selectedDays;
+  const selectedPricePerDay = getVariantPrice(diet, selectedCalories);
+  const totalPrice = selectedPricePerDay * selectedDays;
 
   const startDateIso = startDate ? format(startDate, 'yyyy-MM-dd') : '';
   const startDateLabel = startDate ? format(startDate, 'dd.MM.yyyy', { locale: pl }) : '';
@@ -111,6 +117,7 @@ export function DietDetailPage() {
         days: selectedDays,
         startDate: startDateIso,
       });
+      toast.success('Zmieniono konfigurację diety w koszyku.');
     } else {
       addItem({
         dietId: diet.id,
@@ -118,6 +125,7 @@ export function DietDetailPage() {
         days: selectedDays,
         startDate: startDateIso,
       });
+      toast.success('Dodano dietę do koszyka.');
     }
     navigate('/koszyk');
   };
@@ -177,18 +185,13 @@ export function DietDetailPage() {
                 setAdminError(null);
                 if (!diet) return;
 
-                const price = parseInt(adminForm.pricePerDay);
-                const calories = parseCsvNumbers(adminForm.calorieOptions);
+                const variants = parseVariantsInput(adminForm.variants);
                 if (!adminForm.name.trim() || !adminForm.shortDescription.trim() || !adminForm.description.trim()) {
                   setAdminError('Uzupełnij: nazwa, krótki opis, opis.');
                   return;
                 }
-                if (!Number.isFinite(price) || price <= 0) {
-                  setAdminError('Podaj poprawną cenę / dzień.');
-                  return;
-                }
-                if (calories.length === 0) {
-                  setAdminError('Podaj co najmniej jedną kaloryczność (CSV).');
+                if (variants.length === 0) {
+                  setAdminError('Podaj co najmniej jeden wariant w formacie kalorie:cena, np. 1500:69.');
                   return;
                 }
 
@@ -200,8 +203,7 @@ export function DietDetailPage() {
                   description: adminForm.description.trim(),
                   image: adminForm.image.trim() || diet.image,
                   images: images.length ? images : (adminForm.image.trim() ? [adminForm.image.trim()] : diet.images),
-                  pricePerDay: price,
-                  calorieOptions: calories,
+                  variants,
                   goal: adminForm.goal.trim() || undefined,
                   tags: parseCsvStrings(adminForm.tags),
                   allergens: parseCsvStrings(adminForm.allergens),
@@ -212,6 +214,7 @@ export function DietDetailPage() {
                 });
 
                 setAdminEditOpen(false);
+                toast.success('Dieta została zaktualizowana.');
               }}
             >
               {adminError && (
@@ -224,14 +227,6 @@ export function DietDetailPage() {
                   <input
                     value={adminForm.name}
                     onChange={(e) => setAdminForm((f) => ({ ...f, name: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Cena / dzień (zł)</label>
-                  <input
-                    value={adminForm.pricePerDay}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, pricePerDay: e.target.value }))}
                     className="w-full px-4 py-2 border border-border rounded-lg"
                   />
                 </div>
@@ -268,13 +263,13 @@ export function DietDetailPage() {
                     placeholder="url1, url2, url3"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Kaloryczności (CSV)</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-2">Warianty: kaloryczność:cena / dzień (CSV)</label>
                   <input
-                    value={adminForm.calorieOptions}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, calorieOptions: e.target.value }))}
+                    value={adminForm.variants}
+                    onChange={(e) => setAdminForm((f) => ({ ...f, variants: e.target.value }))}
                     className="w-full px-4 py-2 border border-border rounded-lg"
-                    placeholder="1500, 2000"
+                    placeholder="1500:69, 2000:79, 2500:89"
                   />
                 </div>
                 <div>
@@ -317,19 +312,37 @@ export function DietDetailPage() {
                 <button type="submit" className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90">
                   Zapisz zmiany
                 </button>
-                <button
-                  type="button"
-                  className="px-6 py-3 border border-border rounded-lg hover:bg-destructive/10 text-destructive"
-                  onClick={() => {
-                    if (!diet) return;
-                    if (confirm(`Usunąć dietę: ${diet.name}?`)) {
-                      deleteDiet(diet.id);
-                      navigate('/diety', { replace: true });
-                    }
-                  }}
-                >
-                  Usuń dietę
-                </button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button
+                      type="button"
+                      className="px-6 py-3 border border-border rounded-lg hover:bg-destructive/10 text-destructive"
+                    >
+                      Usuń dietę
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Usunąć dietę?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Dieta „{diet.name}” zniknie z oferty. Tej akcji nie można cofnąć.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Anuluj</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-white hover:bg-destructive/90"
+                        onClick={() => {
+                          deleteDiet(diet.id);
+                          toast.success('Dieta została usunięta.');
+                          navigate('/diety', { replace: true });
+                        }}
+                      >
+                        Usuń
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </form>
           )}
@@ -383,7 +396,7 @@ export function DietDetailPage() {
             <div className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg">
               <Flame className="w-5 h-5 text-primary" />
               <span className="text-sm">
-                {diet.calorieOptions[0]} - {diet.calorieOptions[diet.calorieOptions.length - 1]} kcal
+                {diet.variants[0].calories} - {diet.variants[diet.variants.length - 1].calories} kcal
               </span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 bg-secondary rounded-lg">
@@ -413,9 +426,9 @@ export function DietDetailPage() {
                   onChange={(e) => setSelectedCalories(parseInt(e.target.value))}
                   className="w-full px-4 py-2 border border-border rounded-lg"
                 >
-                  {diet.calorieOptions.map((cal) => (
-                    <option key={cal} value={cal}>
-                      {cal} kcal
+                  {diet.variants.map((variant) => (
+                    <option key={variant.calories} value={variant.calories}>
+                      {variant.calories} kcal - {variant.pricePerDay} zł / dzień
                     </option>
                   ))}
                 </select>
@@ -423,17 +436,10 @@ export function DietDetailPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-2">Liczba dni</label>
-                <select
+                <DurationSelect
                   value={selectedDays}
-                  onChange={(e) => setSelectedDays(parseInt(e.target.value))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
-                >
-                  {[5, 10, 14, 21, 28].map((days) => (
-                    <option key={days} value={days}>
-                      {days} dni
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedDays}
+                />
               </div>
 
               <div>
@@ -460,7 +466,7 @@ export function DietDetailPage() {
               <div className="pt-4 border-t border-border">
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-sm text-muted-foreground">Cena dzienna</span>
-                  <span className="font-bold text-xl text-primary">{diet.pricePerDay} zł</span>
+                  <span className="font-bold text-xl text-primary">{selectedPricePerDay} zł</span>
                 </div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-sm text-muted-foreground">Razem ({selectedDays} dni)</span>
@@ -484,8 +490,8 @@ export function DietDetailPage() {
           <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
             <Flame className="w-6 h-6 text-primary" />
           </div>
-          <h3 className="font-bold mb-2">Makroskładniki</h3>
-          <p className="text-sm text-muted-foreground">Zrównoważone proporcje białka, tłuszczy i węglowodanów</p>
+          <h3 className="font-bold mb-2">Charakter diety</h3>
+          <p className="text-sm text-muted-foreground">{diet.shortDescription}</p>
         </div>
 
         <div className="bg-white border border-border rounded-xl p-6">
@@ -509,7 +515,7 @@ export function DietDetailPage() {
             <Truck className="w-6 h-6 text-primary" />
           </div>
           <h3 className="font-bold mb-2">Dostawa</h3>
-          <p className="text-sm text-muted-foreground">Codziennie rano, bez dodatkowych opłat</p>
+          <p className="text-sm text-muted-foreground">Codziennie rano, koszt zgodnie z podsumowaniem zamówienia</p>
         </div>
       </div>
 

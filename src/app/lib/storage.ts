@@ -2,9 +2,11 @@ export type StorageKey =
   | "twojadieta.v1.diets"
   | "twojadieta.v1.orders"
   | "twojadieta.v1.reviews"
+  | "twojadieta.v1.discountCodes"
   | "twojadieta.v1.users"
   | "twojadieta.v1.session"
-  | "twojadieta.v1.cart";
+  | "twojadieta.v1.cart"
+  | "twojadieta.v1.carts";
 
 export function readJson<T>(key: StorageKey, fallback: T): T {
   try {

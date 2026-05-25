@@ -55,9 +55,9 @@ export function DeliveryPage() {
 
         <div className="bg-white border border-border rounded-xl p-8">
           <Clock className="w-12 h-12 text-primary mb-4" />
-          <h2 className="text-2xl font-bold mb-4">Elastyczne godziny</h2>
+          <h2 className="text-2xl font-bold mb-4">Godziny dostawy</h2>
           <p className="text-muted-foreground mb-4">
-            Możesz wybrać preferowane godziny dostawy i dostosować je do swojego harmonogramu.
+            Dostawy realizujemy w porannych przedziałach czasowych, aby posiłki dotarły świeże.
             Informujemy SMS-em o zbliżającej się dostawie.
           </p>
           <div className="space-y-3">
@@ -82,7 +82,7 @@ export function DeliveryPage() {
           <div className="grid sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
             <div className="bg-white rounded-xl p-6 text-left">
               <div className="text-3xl font-bold text-primary mb-2">0 zł</div>
-              <div className="text-sm text-muted-foreground">Dostawa od 250 zł</div>
+              <div className="text-sm text-muted-foreground">Dostawa powyżej 250 zł</div>
             </div>
             <div className="bg-white rounded-xl p-6 text-left">
               <div className="text-3xl font-bold text-primary mb-2">15 zł</div>
@@ -97,7 +97,7 @@ export function DeliveryPage() {
           <MapPin className="w-12 h-12 text-primary mb-4" />
           <h3 className="font-bold mb-2">Obszar dostawy</h3>
           <p className="text-sm text-muted-foreground">
-            Dostarczamy na terenie całego Krakowa i okolic. Sprawdź dostępność na Twojej ulicy podczas składania zamówienia.
+            Dostarczamy na terenie Krakowa. Adres dostawy podasz podczas składania zamówienia.
           </p>
         </div>
 

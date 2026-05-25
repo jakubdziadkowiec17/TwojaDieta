@@ -1,10 +1,26 @@
 import { Link } from 'react-router';
 import { Breadcrumbs } from '../components/Breadcrumbs';
-import { Minus, Plus, X, Shield, Truck, Leaf } from 'lucide-react';
+import { DurationSelect } from '../components/DurationSelect';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
+import { X, Shield, Truck, Leaf } from 'lucide-react';
 import { useCart } from '../providers/CartProvider';
 import { useData } from '../providers/DataProvider';
+import { calculateDiscount } from '../lib/discounts';
+import { getVariantPrice } from '../lib/dietVariants';
+import { calculateDeliveryCost } from '../lib/pricing';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import { toast } from 'sonner';
 
 function formatIsoDate(iso: string): string {
   try {
@@ -16,19 +32,25 @@ function formatIsoDate(iso: string): string {
 
 export function CartPage() {
   const { items, couponCode, setCouponCode, updateItem, removeItem } = useCart();
-  const { getDietById } = useData();
+  const { getDietById, discountCodes } = useData();
 
   const cartItems = items
     .map((item) => {
       const diet = getDietById(item.dietId);
       if (!diet) return null;
-      return { ...item, diet };
+      return { ...item, diet, pricePerDay: getVariantPrice(diet, item.calories) };
     })
     .filter(Boolean);
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item!.diet.pricePerDay * item!.days, 0);
-  const deliveryCost = cartItems.length === 0 ? 0 : subtotal >= 250 ? 0 : 15;
-  const total = subtotal + deliveryCost;
+  const subtotal = cartItems.reduce((sum, item) => sum + item!.pricePerDay * item!.days, 0);
+  const deliveryCost = calculateDeliveryCost(subtotal, cartItems.length);
+  const { appliedCode, amount: discountAmount } = calculateDiscount(discountCodes, couponCode, subtotal);
+  const total = Math.max(0, subtotal + deliveryCost - discountAmount);
+
+  const handleRemoveItem = (itemId: string) => {
+    removeItem(itemId);
+    toast.success('Usunięto dietę z koszyka.');
+  };
 
   return (
     <div className="container mx-auto max-w-screen-2xl px-8 py-8">
@@ -54,7 +76,7 @@ export function CartPage() {
               <div className="hidden md:grid grid-cols-12 gap-4 p-4 bg-secondary font-medium text-sm">
                 <div className="col-span-5">PRODUKT</div>
                 <div className="col-span-2 text-center">CENA</div>
-                <div className="col-span-2 text-center">ILOŚĆ</div>
+                <div className="col-span-2 text-center">LICZBA DNI</div>
                 <div className="col-span-2 text-center">RAZEM</div>
                 <div className="col-span-1"></div>
               </div>
@@ -82,74 +104,110 @@ export function CartPage() {
                         >
                           Edytuj
                         </Link>
-                        <button
-                          type="button"
-                          onClick={() => removeItem(item!.id)}
-                          className="text-sm text-primary hover:underline"
-                        >
-                          Usuń
-                        </button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button type="button" className="text-sm text-primary hover:underline">
+                              Usuń
+                            </button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Usunąć dietę z koszyka?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Pozycja „{item!.diet.name}” zostanie usunięta z Twojego koszyka.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Anuluj</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-white hover:bg-destructive/90"
+                                onClick={() => handleRemoveItem(item!.id)}
+                              >
+                                Usuń
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                   </div>
 
                   <div className="md:col-span-2 flex items-center md:justify-center">
-                    <span className="font-medium">{item!.diet.pricePerDay} zł / dzień</span>
+                    <span className="font-medium">{item!.pricePerDay} zł / dzień</span>
                   </div>
 
-                  <div className="md:col-span-2 flex items-center md:justify-center gap-2">
-                    <button
-                      onClick={() => updateItem(item!.id, { days: Math.max(1, item!.days - 1) })}
-                      className="w-8 h-8 flex items-center justify-center border border-border rounded hover:bg-secondary"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <span className="w-12 text-center font-medium">{item!.days} dni</span>
-                    <button
-                      onClick={() => updateItem(item!.id, { days: item!.days + 1 })}
-                      className="w-8 h-8 flex items-center justify-center border border-border rounded hover:bg-secondary"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
+                  <div className="md:col-span-2 flex items-center md:justify-center">
+                    <DurationSelect
+                      value={item!.days}
+                      onChange={(days) => {
+                        updateItem(item!.id, { days });
+                        toast.success('Zmieniono liczbę dni.');
+                      }}
+                      className="md:max-w-28"
+                    />
                   </div>
 
                   <div className="md:col-span-2 flex items-center md:justify-center">
                     <span className="font-bold text-primary">
-                      {item!.diet.pricePerDay * item!.days} zł
+                      {item!.pricePerDay * item!.days} zł
                     </span>
                   </div>
 
                   <div className="md:col-span-1 flex items-center md:justify-center">
-                    <button
-                      onClick={() => removeItem(item!.id)}
-                      className="p-2 hover:bg-destructive/10 text-destructive rounded-lg"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="p-2 hover:bg-destructive/10 text-destructive rounded-lg"
+                          aria-label={`Usuń ${item!.diet.name} z koszyka`}
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Usunąć dietę z koszyka?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Pozycja „{item!.diet.name}” zostanie usunięta z Twojego koszyka.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Anuluj</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-white hover:bg-destructive/90"
+                            onClick={() => handleRemoveItem(item!.id)}
+                          >
+                            Usuń
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex items-start gap-4">
               <Link
                 to="/diety"
-                className="px-6 py-3 border border-border rounded-lg hover:bg-secondary transition-colors"
+                className="inline-flex items-center justify-center px-6 py-3 border border-border rounded-lg hover:bg-secondary transition-colors"
               >
                 ← KONTYNUUJ ZAKUPY
               </Link>
 
-              <div className="flex-1 flex gap-2">
+              <div className="flex-1">
                 <input
                   type="text"
                   value={couponCode}
                   onChange={(e) => setCouponCode(e.target.value)}
                   placeholder="Wpisz kod rabatowy"
-                  className="flex-1 px-4 py-3 border border-border rounded-lg"
+                  className="w-full px-4 py-3 border border-border rounded-lg"
                 />
-                <button className="px-6 py-3 bg-secondary border border-border rounded-lg hover:bg-muted transition-colors">
-                  ZASTOSUJ
-                </button>
+                {couponCode.trim() && (
+                  <p className={`text-xs mt-2 ${appliedCode ? 'text-primary' : 'text-destructive'}`}>
+                    {appliedCode ? `Zastosowano kod: ${appliedCode.code}.` : 'Podany kod jest nieprawidłowy lub nieaktywny.'}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -167,6 +225,12 @@ export function CartPage() {
                   <span className="text-muted-foreground">Dostawa</span>
                   <span className="font-medium">{deliveryCost > 0 ? `${deliveryCost} zł` : 'Gratis'}</span>
                 </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Rabat</span>
+                    <span className="font-medium text-primary">- {discountAmount} zł</span>
+                  </div>
+                )}
                 <div className="border-t border-border pt-3 flex justify-between">
                   <span className="font-bold">RAZEM</span>
                   <span className="font-bold text-xl text-primary">{total} zł</span>
@@ -186,7 +250,7 @@ export function CartPage() {
                   <Truck className="w-5 h-5 text-primary flex-shrink-0" />
                   <div>
                     <div className="font-medium">Darmowa dostawa</div>
-                    <div className="text-muted-foreground">od 250 zł</div>
+                    <div className="text-muted-foreground">powyżej 250 zł</div>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">

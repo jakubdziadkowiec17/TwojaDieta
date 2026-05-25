@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router';
 import { Breadcrumbs } from '../components/Breadcrumbs';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ListPagination } from '../components/ListPagination';
 import { useData } from '../providers/DataProvider';
+import { getMinPrice } from '../lib/dietVariants';
 
 export function DietsPage() {
   const { diets, orders } = useData();
@@ -12,7 +13,7 @@ export function DietsPage() {
   const [priceRange, setPriceRange] = useState<[number, number]>([30, 120]);
   const [sortBy, setSortBy] = useState('popularity');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 8;
+  const [itemsPerPage, setItemsPerPage] = useState(8);
 
   const preferenceOptions = useMemo(() => {
     const preferredOrder = ['Wegetariańska', 'Wegańska', 'Bezglutenowa', 'Keto'];
@@ -32,20 +33,21 @@ export function DietsPage() {
       );
     }
 
-    // Filtrowanie po kaloryczności
+    // Cena i kalorycznosc musza pasowac w ramach tego samego wariantu.
     filtered = filtered.filter((diet) =>
-      diet.calorieOptions.some((cal) => cal >= calorieRange[0] && cal <= calorieRange[1])
-    );
-
-    filtered = filtered.filter(
-      (diet) => diet.pricePerDay >= priceRange[0] && diet.pricePerDay <= priceRange[1]
+      diet.variants.some((variant) =>
+        variant.calories >= calorieRange[0] &&
+        variant.calories <= calorieRange[1] &&
+        variant.pricePerDay >= priceRange[0] &&
+        variant.pricePerDay <= priceRange[1],
+      ),
     );
 
     // Sortowanie
     if (sortBy === 'price-asc') {
-      filtered.sort((a, b) => a.pricePerDay - b.pricePerDay);
+      filtered.sort((a, b) => getMinPrice(a) - getMinPrice(b));
     } else if (sortBy === 'price-desc') {
-      filtered.sort((a, b) => b.pricePerDay - a.pricePerDay);
+      filtered.sort((a, b) => getMinPrice(b) - getMinPrice(a));
     } else if (sortBy === 'name') {
       filtered.sort((a, b) => a.name.localeCompare(b.name));
     } else if (sortBy === 'popularity') {
@@ -68,6 +70,15 @@ export function DietsPage() {
   }, [selectedGoals, calorieRange, selectedPreferences, priceRange, sortBy, diets, orders]);
 
   const totalPages = Math.ceil(filteredDiets.length / itemsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedGoals, calorieRange, selectedPreferences, priceRange, sortBy]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, Math.max(1, totalPages)));
+  }, [totalPages]);
+
   const paginatedDiets = filteredDiets.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -236,64 +247,41 @@ export function DietsPage() {
               <Link
                 key={diet.id}
                 to={`/diety/${diet.id}`}
-                className="bg-white rounded-xl overflow-hidden border border-border hover:shadow-lg transition-shadow"
+                className="flex h-full flex-col bg-white rounded-xl overflow-hidden border border-border hover:shadow-lg transition-shadow"
               >
                 <img
                   src={diet.image}
                   alt={diet.name}
                   className="w-full h-48 object-cover"
                 />
-                <div className="p-4">
+                <div className="flex flex-1 flex-col p-4">
                   <h3 className="font-bold mb-2">{diet.name}</h3>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
+                  <p className="min-h-10 text-sm text-muted-foreground mb-4 line-clamp-2">
                     {diet.shortDescription}
                   </p>
                   <div className="text-sm text-muted-foreground mb-2">
-                    {diet.calorieOptions[0]} - {diet.calorieOptions[diet.calorieOptions.length - 1]} kcal
+                    {diet.variants[0].calories} - {diet.variants[diet.variants.length - 1].calories} kcal
                   </div>
                   <div className="text-lg font-bold text-primary mb-4">
-                    od {diet.pricePerDay} zł / dzień
+                    od {getMinPrice(diet)} zł / dzień
                   </div>
-                  <button className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                  <span className="mt-auto block text-center w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
                     ZOBACZ
-                  </button>
+                  </span>
                 </div>
               </Link>
             ))}
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2">
-              <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg border border-border hover:bg-secondary disabled:opacity-50"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`w-10 h-10 rounded-lg ${
-                    page === currentPage
-                      ? 'bg-primary text-white'
-                      : 'border border-border hover:bg-secondary'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
-              <span className="px-4">...</span>
-              <button
-                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-lg border border-border hover:bg-secondary disabled:opacity-50"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-          )}
+          <ListPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            onItemsPerPageChange={setItemsPerPage}
+            itemsPerPageOptions={[4, 8, 12]}
+            totalItems={filteredDiets.length}
+          />
         </div>
       </div>
     </div>

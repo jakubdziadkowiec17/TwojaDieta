@@ -65,14 +65,14 @@ export function Footer() {
             <h4 className="font-bold mb-4">Dostawa</h4>
             <ul className="space-y-2">
               <li>
-                <a href="/dostawa#info" className="text-muted-foreground hover:text-primary">
+                <Link to="/dostawa#info" className="text-muted-foreground hover:text-primary">
                   Informacje o dostawie
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="/dostawa#koszty" className="text-muted-foreground hover:text-primary">
+                <Link to="/dostawa#koszty" className="text-muted-foreground hover:text-primary">
                   Koszty dostawy
-                </a>
+                </Link>
               </li>
             </ul>
           </div>

@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { ShoppingCart, User, Menu } from 'lucide-react';
 import { useState } from 'react';
 import { Logo } from './Logo';
@@ -8,6 +8,7 @@ import { useCart } from '../providers/CartProvider';
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
   const { items } = useCart();
 
@@ -23,6 +24,11 @@ export function Navbar() {
   const accountTo = isAuthenticated ? '/konto' : '/logowanie';
 
   const isActive = (path: string) => location.pathname === path;
+  const handleLogout = () => {
+    logout();
+    setMobileMenuOpen(false);
+    navigate('/', { replace: true });
+  };
 
   return (
     <nav className="bg-white border-b border-border sticky top-0 z-50">
@@ -79,7 +85,7 @@ export function Navbar() {
             {isAuthenticated && (
               <button
                 type="button"
-                onClick={logout}
+                onClick={handleLogout}
                 className="hidden md:flex items-center px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors"
               >
                 Wyloguj
@@ -134,10 +140,7 @@ export function Navbar() {
               <button
                 type="button"
                 className="block py-2 hover:text-primary text-left w-full"
-                onClick={() => {
-                  logout();
-                  setMobileMenuOpen(false);
-                }}
+                onClick={handleLogout}
               >
                 Wyloguj
               </button>

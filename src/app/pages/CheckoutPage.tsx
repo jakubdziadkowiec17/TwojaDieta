@@ -6,7 +6,11 @@ import { Breadcrumbs } from "../components/Breadcrumbs";
 import { useAuth } from "../providers/AuthProvider";
 import { useCart } from "../providers/CartProvider";
 import { useData } from "../providers/DataProvider";
+import { calculateDiscount } from "../lib/discounts";
+import { getVariantPrice } from "../lib/dietVariants";
+import { calculateDeliveryCost } from "../lib/pricing";
 import type { CustomerData, DeliveryData, PaymentMethod } from "../types";
+import { toast } from "sonner";
 
 function formatIsoDate(iso: string): string {
   try {
@@ -20,7 +24,7 @@ export function CheckoutPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated, updateProfile } = useAuth();
   const { items, couponCode, setCouponCode, clearCart } = useCart();
-  const { getDietById, createOrder } = useData();
+  const { getDietById, createOrder, discountCodes } = useData();
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Karta");
   const [customer, setCustomer] = useState<CustomerData>(() => ({
@@ -48,22 +52,20 @@ export function CheckoutPage() {
           calories: i.calories,
           days: i.days,
           startDate: i.startDate,
-          lineTotal: diet.pricePerDay * i.days,
+          pricePerDay: getVariantPrice(diet, i.calories),
+          lineTotal: getVariantPrice(diet, i.calories) * i.days,
         };
       })
       .filter(Boolean);
   }, [getDietById, items]);
 
   const subtotal = enrichedItems.reduce((sum, i) => sum + i!.lineTotal, 0);
-  const deliveryCost = subtotal >= 250 ? 0 : enrichedItems.length > 0 ? 15 : 0;
+  const deliveryCost = calculateDeliveryCost(subtotal, enrichedItems.length);
 
-  const discountAmount = useMemo(() => {
-    // Demo codes
-    const code = couponCode.trim().toUpperCase();
-    if (code === "TPF10") return Math.round(subtotal * 0.1);
-    if (code === "DOSTAWA") return deliveryCost;
-    return 0;
-  }, [couponCode, deliveryCost, subtotal]);
+  const { appliedCode, amount: discountAmount } = useMemo(
+    () => calculateDiscount(discountCodes, couponCode, subtotal),
+    [couponCode, discountCodes, subtotal],
+  );
 
   const total = Math.max(0, subtotal + deliveryCost - discountAmount);
 
@@ -91,6 +93,11 @@ export function CheckoutPage() {
       setError("Uzupełnij dane dostawy.");
       return;
     }
+    const deliveryCity = delivery.addressCity.trim().toLocaleLowerCase("pl-PL");
+    if (deliveryCity !== "kraków" && deliveryCity !== "krakow") {
+      setError("Dostawy realizujemy wyłącznie na terenie Krakowa.");
+      return;
+    }
 
     const order = createOrder({
       userId: isAuthenticated ? user!.id : null,
@@ -100,12 +107,12 @@ export function CheckoutPage() {
         calories: i!.calories,
         days: i!.days,
         startDate: i!.startDate,
-        pricePerDay: i!.diet.pricePerDay,
+        pricePerDay: i!.pricePerDay,
       })),
       customer,
       delivery,
       paymentMethod,
-      couponCode,
+      couponCode: appliedCode?.code ?? "",
       discountAmount,
       subtotal,
       deliveryCost,
@@ -124,7 +131,13 @@ export function CheckoutPage() {
     }
 
     clearCart();
-    navigate(isAuthenticated ? "/konto?tab=orders" : `/zamowienie/potwierdzenie/${order.id}`, { replace: true });
+    toast.success("Zamówienie zostało złożone.", {
+      description: `Numer zamówienia: #${order.id}`,
+    });
+    navigate("/konto?tab=orders", {
+      replace: true,
+      state: { completedOrderId: order.id },
+    });
   };
 
   return (
@@ -233,18 +246,19 @@ export function CheckoutPage() {
 
           <div className="bg-white border border-border rounded-xl p-6">
             <h2 className="font-bold text-lg mb-4">Kod rabatowy</h2>
-            <div className="flex gap-2">
+            <div>
               <input
                 value={couponCode}
                 onChange={(e) => setCouponCode(e.target.value)}
-                className="flex-1 px-4 py-2 border border-border rounded-lg"
-                placeholder="np. TPF10 lub DOSTAWA"
+                className="w-full px-4 py-2 border border-border rounded-lg"
+                placeholder="Wpisz kod rabatowy"
               />
-              <button type="button" className="px-4 py-2 bg-secondary border border-border rounded-lg">
-                Zastosuj
-              </button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Demo: `TPF10` (-10%) lub `DOSTAWA` (-koszt dostawy).</p>
+            {couponCode.trim() && (
+              <p className={`text-xs mt-2 ${appliedCode ? "text-primary" : "text-destructive"}`}>
+                {appliedCode ? `Zastosowano kod: ${appliedCode.code}.` : "Podany kod jest nieprawidłowy lub nieaktywny."}
+              </p>
+            )}
           </div>
 
           <div className="bg-white border border-border rounded-xl p-6">

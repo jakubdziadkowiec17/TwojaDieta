@@ -5,9 +5,9 @@ const UPDATED_AT = '25.05.2026';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6">
-      <h2 className="text-lg font-bold mb-2">{title}</h2>
-      <div className="text-muted-foreground space-y-3">{children}</div>
+    <section className="py-6 border-b border-border last:border-b-0 last:pb-0 first:pt-0">
+      <h2 className="text-lg font-bold mb-3">{title}</h2>
+      <div className="text-muted-foreground leading-relaxed space-y-3">{children}</div>
     </section>
   );
 }
@@ -19,15 +19,15 @@ export function LegalPage({ title }: { title: string }) {
   return (
     <div className="container mx-auto max-w-screen-2xl px-8 py-8">
       <Breadcrumbs items={[{ label: 'Strona główna', to: '/' }, { label: title }]} />
-      <div className="bg-white border border-border rounded-xl p-6 max-w-3xl">
-        <h1 className="text-3xl font-bold mb-4">{title}</h1>
 
-        <p className="text-sm text-muted-foreground">
-          Ostatnia aktualizacja: <span className="font-medium">{UPDATED_AT}</span>. Dokument dotyczy wersji demonstracyjnej aplikacji (projekt uczelniany, bez backendu).
+      <article className="bg-white border border-border rounded-xl p-6 sm:p-8 max-w-3xl mx-auto">
+        <h1 className="text-3xl font-bold mb-4">{title}</h1>
+        <p className="text-sm text-muted-foreground pb-6 mb-6 border-b border-border">
+          Ostatnia aktualizacja: <span className="font-medium text-foreground">{UPDATED_AT}</span>. Dokument dotyczy wersji demonstracyjnej aplikacji (projekt uczelniany).
         </p>
 
-        {isTerms && (
-          <>
+          {isTerms && (
+            <>
             <Section title="1. Informacje ogólne">
               <p>
                 Serwis <span className="font-medium text-foreground">TwojaDieta</span> prezentuje ofertę diet oraz umożliwia złożenie zamówienia online.
@@ -90,11 +90,11 @@ export function LegalPage({ title }: { title: string }) {
                 Kontakt (przykładowy): e-mail <span className="font-medium text-foreground">kontakt@catering.pl</span>, tel. <span className="font-medium text-foreground">+48 123 456 789</span>.
               </p>
             </Section>
-          </>
-        )}
+            </>
+          )}
 
-        {isPrivacy && (
-          <>
+          {isPrivacy && (
+            <>
             <Section title="1. Administrator danych">
               <p>
                 Administratorem danych w wersji demonstracyjnej jest <span className="font-medium text-foreground">TwojaDieta</span> (projekt uczelniany).
@@ -149,15 +149,15 @@ export function LegalPage({ title }: { title: string }) {
                 W wersji demonstracyjnej nie wdrażamy zewnętrznych narzędzi analitycznych.
               </p>
             </Section>
-          </>
-        )}
+            </>
+          )}
 
-        {!isTerms && !isPrivacy && (
-          <p className="text-muted-foreground mt-6">
-            Brak przygotowanej treści dla tej strony.
-          </p>
-        )}
-      </div>
+          {!isTerms && !isPrivacy && (
+            <p className="text-muted-foreground">
+              Brak przygotowanej treści dla tej strony.
+            </p>
+          )}
+      </article>
     </div>
   );
 }

@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { Breadcrumbs } from '../components/Breadcrumbs';
-import { Home, ShoppingBag, Heart, MapPin, Settings, LogOut, Eye } from 'lucide-react';
+import { ListPagination } from '../components/ListPagination';
+import { OrderDetailsDialog } from '../components/OrderDetailsDialog';
+import { Home, ShoppingBag, Heart, MapPin, Settings, LogOut, Eye, KeyRound, EyeOff } from 'lucide-react';
 import { useAuth } from '../providers/AuthProvider';
 import { useData } from '../providers/DataProvider';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import { toast } from 'sonner';
+import type { PaymentStatus } from '../types';
 
 function formatDateTime(iso: string): string {
   try {
@@ -15,18 +19,44 @@ function formatDateTime(iso: string): string {
   }
 }
 
+function paymentStatusClasses(status: PaymentStatus): string {
+  if (status === 'Opłacone') return 'bg-primary/10 text-primary';
+  if (status === 'Oczekuje na płatność') return 'bg-accent/15 text-accent';
+  if (status === 'Zwrócone') return 'bg-secondary text-muted-foreground';
+  return 'bg-destructive/10 text-destructive';
+}
+
 export function AccountPage() {
-  const { user, isAuthenticated, logout, updateProfile } = useAuth();
+  const { user, isAuthenticated, logout, updateProfile, changePassword } = useAuth();
   const { orders, diets, reviews, upsertReview } = useData();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const initialTab = searchParams.get('tab') ?? 'dashboard';
   const [activeTab, setActiveTab] = useState(initialTab);
+  const completedOrderId = (location.state as { completedOrderId?: string } | null)?.completedOrderId;
+  const guestCompletedOrder = !user && completedOrderId
+    ? orders.find((order) => order.id === completedOrderId && order.userId === null) ?? null
+    : null;
 
   const myOrders = useMemo(() => {
     if (!user) return [];
-    return orders.filter((o) => o.userId === user.id);
+    return orders
+      .filter((o) => o.userId === user.id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [orders, user]);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [ordersPerPage, setOrdersPerPage] = useState(5);
+  const ordersTotalPages = Math.max(1, Math.ceil(myOrders.length / ordersPerPage));
+  const paginatedOrders = myOrders.slice(
+    (ordersPage - 1) * ordersPerPage,
+    ordersPage * ordersPerPage,
+  );
+
+  useEffect(() => {
+    setOrdersPage((page) => Math.min(page, ordersTotalPages));
+  }, [ordersTotalPages]);
 
   const myDietIds = useMemo(() => {
     const ids = new Set<string>();
@@ -48,6 +78,13 @@ export function AccountPage() {
   }));
 
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const menuItems = [
     { id: 'dashboard', label: 'Pulpit', icon: Home },
@@ -55,7 +92,14 @@ export function AccountPage() {
     { id: 'reviews', label: 'Ocena diet', icon: Heart },
     { id: 'addresses', label: 'Dane dostawy', icon: MapPin },
     { id: 'settings', label: 'Dane konta', icon: Settings },
+    { id: 'password', label: 'Zmiana hasła', icon: KeyRound },
   ];
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab') ?? 'dashboard';
+    const isAvailableTab = menuItems.some((item) => item.id === requestedTab);
+    setActiveTab(isAvailableTab ? requestedTab : 'dashboard');
+  }, [searchParams]);
 
   const onTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -64,15 +108,58 @@ export function AccountPage() {
     setSearchParams(next, { replace: true });
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/', { replace: true });
+  };
+
   if (!isAuthenticated || !user) {
     return (
       <div className="container mx-auto max-w-screen-2xl px-8 py-8">
         <Breadcrumbs items={[{ label: 'Strona główna', to: '/' }, { label: 'Konto' }]} />
         <div className="bg-white border border-border rounded-xl p-8 max-w-3xl">
-          <h1 className="text-3xl font-bold mb-2">Konto klienta</h1>
-          <p className="text-muted-foreground mb-6">
-            Zaloguj się lub zarejestruj, aby mieć historię zamówień, dane dostawy i możliwość oceniania diet.
-          </p>
+          {guestCompletedOrder ? (
+            <>
+              <h1 className="text-3xl font-bold mb-2">Zamówienie zostało złożone</h1>
+              <p className="text-muted-foreground mb-6">
+                Numer zamówienia: <span className="font-medium text-foreground">#{guestCompletedOrder.id}</span>
+              </p>
+              <div className="border border-border rounded-xl p-4 mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <div className="font-bold">Podsumowanie zamówienia</div>
+                  <div className="text-right">
+                    <div className="text-xs text-muted-foreground">Łączna kwota zamówienia</div>
+                    <div className="font-bold text-primary">{guestCompletedOrder.total} zł</div>
+                  </div>
+                </div>
+                <div className={`inline-flex px-3 py-1 rounded-full text-xs font-medium mb-3 ${paymentStatusClasses(guestCompletedOrder.paymentStatus)}`}>
+                  Płatność: {guestCompletedOrder.paymentStatus}
+                </div>
+                <div className="space-y-2 text-sm">
+                  {guestCompletedOrder.items.map((item, index) => (
+                    <div key={`${item.dietId}-${index}`} className="flex justify-between gap-4">
+                      <span>{item.dietName} • {item.calories} kcal • {item.days} dni</span>
+                      <span className="font-medium">Wartość pozycji: {item.pricePerDay * item.days} zł</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 pt-4 border-t border-border text-sm text-muted-foreground">
+                  <div><span className="font-medium text-foreground">Adres dostawy:</span> {guestCompletedOrder.delivery.addressLine1}, {guestCompletedOrder.delivery.addressPostalCode} {guestCompletedOrder.delivery.addressCity}</div>
+                  <div className="mt-1"><span className="font-medium text-foreground">Uwagi:</span> {guestCompletedOrder.delivery.notes?.trim() || 'Brak uwag'}</div>
+                </div>
+              </div>
+              <p className="text-muted-foreground mb-6">
+                Zamówienie gościnne nie jest przypisane do konta. Zaloguj się przy kolejnych zakupach, aby mieć dostęp do pełnej historii.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-3xl font-bold mb-2">Konto klienta</h1>
+              <p className="text-muted-foreground mb-6">
+                Zaloguj się lub zarejestruj, aby mieć historię zamówień, dane dostawy i możliwość oceniania diet.
+              </p>
+            </>
+          )}
           <div className="flex flex-wrap gap-3">
             <Link to="/logowanie" className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
               Zaloguj się
@@ -118,7 +205,7 @@ export function AccountPage() {
               ))}
               <button
                 type="button"
-                onClick={logout}
+                onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-secondary text-foreground border-t border-border mt-4 pt-4"
               >
                 <LogOut className="w-5 h-5" />
@@ -192,9 +279,14 @@ export function AccountPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <button type="button" className="p-2 hover:bg-secondary rounded-lg" onClick={() => onTabChange('orders')}>
-                              <Eye className="w-5 h-5" />
-                            </button>
+                            <OrderDetailsDialog
+                              order={order}
+                              trigger={(
+                                <button type="button" className="text-primary hover:underline text-sm">
+                                  Szczegóły
+                                </button>
+                              )}
+                            />
                           </td>
                         </tr>
                       ))}
@@ -217,29 +309,66 @@ export function AccountPage() {
                 {myOrders.length === 0 ? (
                   <p className="text-muted-foreground">Nie masz jeszcze zamówień.</p>
                 ) : (
+                  <>
                   <div className="space-y-4">
-                    {myOrders.map((order) => (
+                    {paginatedOrders.map((order) => (
                       <div key={order.id} className="border border-border rounded-xl p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <div className="font-bold">Zamówienie #{order.id}</div>
                             <div className="text-sm text-muted-foreground">{formatDateTime(order.createdAt)}</div>
                           </div>
-                          <div className="font-bold text-primary">{order.total} zł</div>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground">Łączna kwota zamówienia</div>
+                            <div className="font-bold text-lg text-primary">{order.total} zł</div>
+                            <OrderDetailsDialog
+                              order={order}
+                              trigger={(
+                                <button type="button" className="mt-2 text-sm text-primary hover:underline">
+                                  Szczegóły
+                                </button>
+                              )}
+                            />
+                          </div>
                         </div>
 
-                        <div className="text-sm text-muted-foreground mt-2">Status: {order.status}</div>
-                        <div className="mt-3 space-y-1 text-sm">
+                        <div className="flex flex-wrap gap-2 mt-3 text-xs font-medium">
+                          <span className="bg-secondary text-foreground px-3 py-1 rounded-full">Status realizacji: {order.status}</span>
+                          <span className={`px-3 py-1 rounded-full ${paymentStatusClasses(order.paymentStatus)}`}>
+                            Płatność: {order.paymentStatus}
+                          </span>
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-4">
+                          <div>
+                            <span className="font-medium text-foreground">Adres dostawy:</span> {order.delivery.addressLine1}, {order.delivery.addressPostalCode} {order.delivery.addressCity}
+                          </div>
+                          <div className="mt-1">
+                            <span className="font-medium text-foreground">Uwagi:</span> {order.delivery.notes?.trim() || 'Brak uwag'}
+                          </div>
+                          <div className="mt-1">
+                            <span className="font-medium text-foreground">Metoda płatności:</span> {order.paymentMethod}
+                          </div>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-border space-y-2 text-sm">
                           {order.items.map((it, idx) => (
                             <div key={idx} className="flex justify-between">
                               <span>{it.dietName} • {it.calories} kcal • {it.days} dni</span>
-                              <span className="font-medium">{it.pricePerDay * it.days} zł</span>
+                              <span className="font-medium">Wartość pozycji: {it.pricePerDay * it.days} zł</span>
                             </div>
                           ))}
                         </div>
                       </div>
                     ))}
                   </div>
+                  <ListPagination
+                    currentPage={ordersPage}
+                    totalPages={ordersTotalPages}
+                    onPageChange={setOrdersPage}
+                    itemsPerPage={ordersPerPage}
+                    onItemsPerPageChange={setOrdersPerPage}
+                    totalItems={myOrders.length}
+                  />
+                  </>
                 )}
               </div>
             </div>
@@ -281,6 +410,7 @@ export function AccountPage() {
                                 rating,
                                 comment,
                               });
+                              toast.success(existing ? 'Opinia została zaktualizowana.' : 'Opinia została dodana.');
                             }}
                           />
                         </div>
@@ -333,7 +463,12 @@ export function AccountPage() {
                       addressCity: profileForm.addressCity,
                       addressPostalCode: profileForm.addressPostalCode,
                     });
-                    setProfileMsg(res.ok ? 'Zapisano.' : res.error);
+                    if (res.ok) {
+                      setProfileMsg(null);
+                      toast.success('Dane dostawy zostały zapisane.');
+                    } else {
+                      setProfileMsg(res.error);
+                    }
                     window.setTimeout(() => setProfileMsg(null), 2000);
                   }}
                   className="mt-4 px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90"
@@ -358,7 +493,12 @@ export function AccountPage() {
                       lastName: profileForm.lastName,
                       phone: profileForm.phone,
                     });
-                    setProfileMsg(res.ok ? 'Zapisano.' : res.error);
+                    if (res.ok) {
+                      setProfileMsg(null);
+                      toast.success('Dane konta zostały zapisane.');
+                    } else {
+                      setProfileMsg(res.error);
+                    }
                     window.setTimeout(() => setProfileMsg(null), 2000);
                   }}
                 >
@@ -411,6 +551,88 @@ export function AccountPage() {
               </div>
             </div>
           )}
+
+          {activeTab === 'password' && (
+            <div>
+              <h2 className="text-2xl font-bold mb-6">Zmiana hasła</h2>
+              <div className="bg-white border border-border rounded-xl p-6">
+                <p className="text-muted-foreground mb-6">
+                  Podaj bieżące hasło, a następnie ustaw nowe hasło do logowania.
+                </p>
+                <form
+                  className="space-y-4 max-w-xl"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setPasswordError(null);
+                    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+                      setPasswordError('Nowe hasła nie są takie same.');
+                      return;
+                    }
+                    const result = changePassword({
+                      currentPassword: passwordForm.currentPassword,
+                      newPassword: passwordForm.newPassword,
+                    });
+                    if (!result.ok) {
+                      setPasswordError(result.error);
+                      return;
+                    }
+                    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                    toast.success('Hasło zostało zmienione.');
+                  }}
+                >
+                  {passwordError && (
+                    <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3">
+                      {passwordError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Bieżące hasło</label>
+                    <input
+                      type={showPasswords ? 'text' : 'password'}
+                      value={passwordForm.currentPassword}
+                      onChange={(e) => setPasswordForm((form) => ({ ...form, currentPassword: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Nowe hasło</label>
+                    <input
+                      type={showPasswords ? 'text' : 'password'}
+                      value={passwordForm.newPassword}
+                      onChange={(e) => setPasswordForm((form) => ({ ...form, newPassword: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Powtórz nowe hasło</label>
+                    <input
+                      type={showPasswords ? 'text' : 'password'}
+                      value={passwordForm.confirmPassword}
+                      onChange={(e) => setPasswordForm((form) => ({ ...form, confirmPassword: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords(!showPasswords)}
+                    className="flex items-center gap-2 text-sm text-primary hover:underline"
+                  >
+                    {showPasswords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPasswords ? 'Ukryj hasła' : 'Pokaż hasła'}
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90"
+                  >
+                    Zmień hasło
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
@@ -428,7 +650,6 @@ function ReviewForm({
 }) {
   const [rating, setRating] = useState<number>(initialRating);
   const [comment, setComment] = useState<string>(initialComment);
-  const [saved, setSaved] = useState(false);
 
   return (
     <div className="mt-4">
@@ -461,14 +682,11 @@ function ReviewForm({
         type="button"
         onClick={() => {
           onSave(rating, comment);
-          setSaved(true);
-          window.setTimeout(() => setSaved(false), 1500);
         }}
         className="mt-3 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
       >
         Zapisz opinię
       </button>
-      {saved && <div className="text-sm text-muted-foreground mt-2">Zapisano.</div>}
     </div>
   );
 }
