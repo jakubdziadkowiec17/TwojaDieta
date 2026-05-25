@@ -42,7 +42,7 @@ export function PageTitle() {
       return withBrand(`Potwierdzenie zamówienia #${orderId}`);
     }
 
-    return BRAND;
+    return withBrand('Nie znaleziono strony');
   }, [getDietById, location.pathname]);
 
   useEffect(() => {

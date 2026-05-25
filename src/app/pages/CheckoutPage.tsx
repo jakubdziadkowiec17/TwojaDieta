@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router";
 import { format } from "date-fns";
 import { pl } from "date-fns/locale";
 import { Breadcrumbs } from "../components/Breadcrumbs";
+import { FieldError, OptionalMark, fieldClassName } from "../components/FormFeedback";
 import { useAuth } from "../providers/AuthProvider";
 import { useCart } from "../providers/CartProvider";
 import { useData } from "../providers/DataProvider";
@@ -11,6 +12,18 @@ import { getVariantPrice } from "../lib/dietVariants";
 import { calculateDeliveryCost } from "../lib/pricing";
 import type { CustomerData, DeliveryData, PaymentMethod } from "../types";
 import { toast } from "sonner";
+import {
+  firstError,
+  type FieldErrors,
+  validateCity,
+  validateCouponCode,
+  validateEmail,
+  validateOptionalText,
+  validatePhone,
+  validatePostalCode,
+  validateRequiredText,
+  validationLimits,
+} from "../lib/validation";
 
 function formatIsoDate(iso: string): string {
   try {
@@ -40,6 +53,7 @@ export function CheckoutPage() {
     notes: "",
   }));
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const enrichedItems = useMemo(() => {
     return items
@@ -76,26 +90,29 @@ export function CheckoutPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    if (!customer.firstName.trim() || !customer.lastName.trim()) {
-      setError("Podaj imię i nazwisko.");
-      return;
-    }
-    if (!customer.email.trim()) {
-      setError("Podaj e-mail.");
-      return;
-    }
-    if (!customer.phone.trim()) {
-      setError("Podaj numer telefonu.");
-      return;
-    }
-    if (!delivery.addressLine1.trim() || !delivery.addressCity.trim() || !delivery.addressPostalCode.trim()) {
-      setError("Uzupełnij dane dostawy.");
-      return;
-    }
-    const deliveryCity = delivery.addressCity.trim().toLocaleLowerCase("pl-PL");
-    if (deliveryCity !== "kraków" && deliveryCity !== "krakow") {
-      setError("Dostawy realizujemy wyłącznie na terenie Krakowa.");
+    const nextErrors: FieldErrors = {};
+    const firstNameError = validateRequiredText(customer.firstName, "Imię", 2, validationLimits.nameMax);
+    const lastNameError = validateRequiredText(customer.lastName, "Nazwisko", 2, validationLimits.nameMax);
+    const emailError = validateEmail(customer.email);
+    const phoneError = validatePhone(customer.phone);
+    const addressError = validateRequiredText(delivery.addressLine1, "Adres", 5, validationLimits.addressMax);
+    const cityError = validateCity(delivery.addressCity, true, true);
+    const postalCodeError = validatePostalCode(delivery.addressPostalCode);
+    const notesError = validateOptionalText(delivery.notes ?? "", "Uwagi", validationLimits.notesMax);
+    const couponError = validateCouponCode(couponCode);
+    if (firstNameError) nextErrors.firstName = firstNameError;
+    if (lastNameError) nextErrors.lastName = lastNameError;
+    if (emailError) nextErrors.email = emailError;
+    if (phoneError) nextErrors.phone = phoneError;
+    if (addressError) nextErrors.addressLine1 = addressError;
+    if (cityError) nextErrors.addressCity = cityError;
+    if (postalCodeError) nextErrors.addressPostalCode = postalCodeError;
+    if (notesError) nextErrors.notes = notesError;
+    if (couponError) nextErrors.couponCode = couponError;
+    setFieldErrors(nextErrors);
+    const validationError = firstError(nextErrors);
+    if (validationError) {
+      setError("Popraw zaznaczone pola formularza.");
       return;
     }
 
@@ -160,7 +177,7 @@ export function CheckoutPage() {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-8">
-        <form onSubmit={submit} className="lg:col-span-2 space-y-6">
+        <form onSubmit={submit} className="lg:col-span-2 space-y-6" noValidate>
           {error && (
             <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-xl p-4">{error}</div>
           )}
@@ -172,34 +189,64 @@ export function CheckoutPage() {
                 <label className="block text-sm font-medium mb-2">Imię</label>
                 <input
                   value={customer.firstName}
-                  onChange={(e) => setCustomer((c) => ({ ...c, firstName: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={validationLimits.nameMax}
+                  autoComplete="given-name"
+                  onChange={(e) => {
+                    setCustomer((c) => ({ ...c, firstName: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, firstName: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.firstName}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.firstName)}`}
                 />
+                <FieldError message={fieldErrors.firstName} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Nazwisko</label>
                 <input
                   value={customer.lastName}
-                  onChange={(e) => setCustomer((c) => ({ ...c, lastName: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={validationLimits.nameMax}
+                  autoComplete="family-name"
+                  onChange={(e) => {
+                    setCustomer((c) => ({ ...c, lastName: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, lastName: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.lastName}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.lastName)}`}
                 />
+                <FieldError message={fieldErrors.lastName} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">E-mail</label>
                 <input
                   type="email"
                   value={customer.email}
-                  onChange={(e) => setCustomer((c) => ({ ...c, email: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={validationLimits.emailMax}
+                  autoComplete="email"
+                  onChange={(e) => {
+                    setCustomer((c) => ({ ...c, email: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, email: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.email}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.email)}`}
                 />
+                <FieldError message={fieldErrors.email} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Telefon</label>
                 <input
+                  type="tel"
                   value={customer.phone}
-                  onChange={(e) => setCustomer((c) => ({ ...c, phone: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={validationLimits.phoneMax}
+                  autoComplete="tel"
+                  placeholder="501 234 567"
+                  onChange={(e) => {
+                    setCustomer((c) => ({ ...c, phone: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, phone: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.phone}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.phone)}`}
                 />
+                <FieldError message={fieldErrors.phone} />
               </div>
             </div>
           </div>
@@ -211,49 +258,84 @@ export function CheckoutPage() {
                 <label className="block text-sm font-medium mb-2">Adres</label>
                 <input
                   value={delivery.addressLine1}
-                  onChange={(e) => setDelivery((d) => ({ ...d, addressLine1: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={validationLimits.addressMax}
+                  autoComplete="street-address"
+                  onChange={(e) => {
+                    setDelivery((d) => ({ ...d, addressLine1: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, addressLine1: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.addressLine1}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.addressLine1)}`}
                   placeholder="Ulica, numer domu/mieszkania"
                 />
+                <FieldError message={fieldErrors.addressLine1} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Miasto</label>
                 <input
                   value={delivery.addressCity}
-                  onChange={(e) => setDelivery((d) => ({ ...d, addressCity: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={validationLimits.cityMax}
+                  autoComplete="address-level2"
+                  onChange={(e) => {
+                    setDelivery((d) => ({ ...d, addressCity: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, addressCity: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.addressCity}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.addressCity)}`}
                 />
+                <FieldError message={fieldErrors.addressCity} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Kod pocztowy</label>
                 <input
                   value={delivery.addressPostalCode}
-                  onChange={(e) => setDelivery((d) => ({ ...d, addressPostalCode: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg"
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="postal-code"
+                  onChange={(e) => {
+                    setDelivery((d) => ({ ...d, addressPostalCode: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, addressPostalCode: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.addressPostalCode}
+                  className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(fieldErrors.addressPostalCode)}`}
                   placeholder="00-000"
                 />
+                <FieldError message={fieldErrors.addressPostalCode} />
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium mb-2">Uwagi (opcjonalnie)</label>
+                <label className="block text-sm font-medium mb-2">Uwagi<OptionalMark /></label>
                 <textarea
                   value={delivery.notes ?? ""}
-                  onChange={(e) => setDelivery((d) => ({ ...d, notes: e.target.value }))}
-                  className="w-full px-4 py-2 border border-border rounded-lg min-h-[90px]"
+                  maxLength={validationLimits.notesMax}
+                  onChange={(e) => {
+                    setDelivery((d) => ({ ...d, notes: e.target.value }));
+                    setFieldErrors((errors) => ({ ...errors, notes: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.notes}
+                  className={`w-full px-4 py-2 border rounded-lg min-h-[90px] ${fieldClassName(fieldErrors.notes)}`}
                 />
+                <FieldError message={fieldErrors.notes} />
+                <p className="mt-1 text-xs text-muted-foreground">{(delivery.notes ?? "").length}/{validationLimits.notesMax}</p>
               </div>
             </div>
           </div>
 
           <div className="bg-white border border-border rounded-xl p-6">
-            <h2 className="font-bold text-lg mb-4">Kod rabatowy</h2>
+            <h2 className="font-bold text-lg mb-4">Kod rabatowy <OptionalMark /></h2>
             <div>
               <input
                 value={couponCode}
-                onChange={(e) => setCouponCode(e.target.value)}
-                className="w-full px-4 py-2 border border-border rounded-lg"
+                maxLength={validationLimits.couponMax}
+                onChange={(e) => {
+                  setCouponCode(e.target.value.toUpperCase());
+                  setFieldErrors((errors) => ({ ...errors, couponCode: "" }));
+                }}
+                aria-invalid={!!fieldErrors.couponCode}
+                className={`w-full px-4 py-2 border rounded-lg uppercase ${fieldClassName(fieldErrors.couponCode)}`}
                 placeholder="Wpisz kod rabatowy"
               />
             </div>
+            <FieldError message={fieldErrors.couponCode} />
             {couponCode.trim() && (
               <p className={`text-xs mt-2 ${appliedCode ? "text-primary" : "text-destructive"}`}>
                 {appliedCode ? `Zastosowano kod: ${appliedCode.code}.` : "Podany kod jest nieprawidłowy lub nieaktywny."}

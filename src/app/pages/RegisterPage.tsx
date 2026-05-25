@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Eye, EyeOff } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
+import { FieldError, fieldClassName } from '../components/FormFeedback';
 import { useAuth } from '../providers/AuthProvider';
 import { toast } from 'sonner';
+import { firstError, type FieldErrors, validateEmail, validatePassword, validateRequiredText, validationLimits } from '../lib/validation';
 
 export function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -18,18 +20,25 @@ export function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!acceptTerms) {
-      setError('Zaakceptuj regulamin i politykę prywatności.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('Hasła nie są takie same.');
-      return;
-    }
+    const nextErrors: FieldErrors = {};
+    const firstNameError = validateRequiredText(firstName, 'Imię', 2, validationLimits.nameMax);
+    const lastNameError = validateRequiredText(lastName, 'Nazwisko', 2, validationLimits.nameMax);
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(password);
+    if (firstNameError) nextErrors.firstName = firstNameError;
+    if (lastNameError) nextErrors.lastName = lastNameError;
+    if (emailError) nextErrors.email = emailError;
+    if (passwordError) nextErrors.password = passwordError;
+    if (!confirmPassword) nextErrors.confirmPassword = 'Powtórzenie hasła jest wymagane.';
+    else if (password !== confirmPassword) nextErrors.confirmPassword = 'Hasła nie są takie same.';
+    if (!acceptTerms) nextErrors.terms = 'Zaakceptuj regulamin i politykę prywatności.';
+    setFieldErrors(nextErrors);
+    if (firstError(nextErrors)) return;
     const res = register({ firstName, lastName, email, password });
     if (!res.ok) {
       setError(res.error);
@@ -62,7 +71,7 @@ export function RegisterPage() {
           <h2 className="text-3xl font-bold mb-2">ZAREJESTRUJ SIĘ</h2>
           <p className="text-muted-foreground mb-8">Załóż konto i ciesz się pełnią możliwości</p>
 
-          <form className="space-y-4" onSubmit={onSubmit}>
+          <form className="space-y-4" onSubmit={onSubmit} noValidate>
             {error && (
               <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3">
                 {error}
@@ -77,9 +86,16 @@ export function RegisterPage() {
                 id="name"
                 placeholder="Wpisz swoje imię"
                 value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                maxLength={validationLimits.nameMax}
+                autoComplete="given-name"
+                onChange={(e) => {
+                  setFirstName(e.target.value);
+                  setFieldErrors((errors) => ({ ...errors, firstName: '' }));
+                }}
+                aria-invalid={!!fieldErrors.firstName}
+                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.firstName)}`}
               />
+              <FieldError message={fieldErrors.firstName} />
             </div>
 
             <div>
@@ -91,9 +107,16 @@ export function RegisterPage() {
                 id="surname"
                 placeholder="Wpisz swoje nazwisko"
                 value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                maxLength={validationLimits.nameMax}
+                autoComplete="family-name"
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                  setFieldErrors((errors) => ({ ...errors, lastName: '' }));
+                }}
+                aria-invalid={!!fieldErrors.lastName}
+                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.lastName)}`}
               />
+              <FieldError message={fieldErrors.lastName} />
             </div>
 
             <div>
@@ -105,9 +128,16 @@ export function RegisterPage() {
                 id="email"
                 placeholder="Wpisz swój adres e-mail"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                maxLength={validationLimits.emailMax}
+                autoComplete="email"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setFieldErrors((errors) => ({ ...errors, email: '' }));
+                }}
+                aria-invalid={!!fieldErrors.email}
+                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.email)}`}
               />
+              <FieldError message={fieldErrors.email} />
             </div>
 
             <div>
@@ -120,8 +150,14 @@ export function RegisterPage() {
                   id="password"
                   placeholder="Wpisz hasło"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg pr-12 focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={validationLimits.passwordMax}
+                  autoComplete="new-password"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFieldErrors((errors) => ({ ...errors, password: '', confirmPassword: '' }));
+                  }}
+                  aria-invalid={!!fieldErrors.password}
+                  className={`w-full px-4 py-3 border rounded-lg pr-12 focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.password)}`}
                 />
                 <button
                   type="button"
@@ -131,6 +167,8 @@ export function RegisterPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              <FieldError message={fieldErrors.password} />
+              {!fieldErrors.password && <p className="mt-1 text-xs text-muted-foreground">Minimum 8 znaków, w tym litera i cyfra.</p>}
             </div>
 
             <div>
@@ -143,8 +181,14 @@ export function RegisterPage() {
                   id="confirmPassword"
                   placeholder="Powtórz hasło"
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg pr-12 focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={validationLimits.passwordMax}
+                  autoComplete="new-password"
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setFieldErrors((errors) => ({ ...errors, confirmPassword: '' }));
+                  }}
+                  aria-invalid={!!fieldErrors.confirmPassword}
+                  className={`w-full px-4 py-3 border rounded-lg pr-12 focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.confirmPassword)}`}
                 />
                 <button
                   type="button"
@@ -154,13 +198,18 @@ export function RegisterPage() {
                   {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              <FieldError message={fieldErrors.confirmPassword} />
             </div>
 
             <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={acceptTerms}
-                onChange={(e) => setAcceptTerms(e.target.checked)}
+                onChange={(e) => {
+                  setAcceptTerms(e.target.checked);
+                  setFieldErrors((errors) => ({ ...errors, terms: '' }));
+                }}
+                aria-invalid={!!fieldErrors.terms}
                 className="w-4 h-4 mt-1 rounded border-border"
               />
               <span className="text-sm">
@@ -174,6 +223,7 @@ export function RegisterPage() {
                 </Link>
               </span>
             </label>
+            <FieldError message={fieldErrors.terms} />
 
             <button
               type="submit"

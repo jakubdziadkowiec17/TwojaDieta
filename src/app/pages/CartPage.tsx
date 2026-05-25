@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DurationSelect } from '../components/DurationSelect';
+import { OptionalMark } from '../components/FormFeedback';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +22,7 @@ import { calculateDeliveryCost } from '../lib/pricing';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { toast } from 'sonner';
+import { validationLimits } from '../lib/validation';
 
 function formatIsoDate(iso: string): string {
   try {
@@ -196,12 +198,14 @@ export function CartPage() {
               </Link>
 
               <div className="flex-1">
+                <label className="mb-2 block text-sm font-medium">Kod rabatowy<OptionalMark /></label>
                 <input
                   type="text"
                   value={couponCode}
-                  onChange={(e) => setCouponCode(e.target.value)}
+                  maxLength={validationLimits.couponMax}
+                  onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                   placeholder="Wpisz kod rabatowy"
-                  className="w-full px-4 py-3 border border-border rounded-lg"
+                  className="w-full px-4 py-3 border border-border rounded-lg uppercase"
                 />
                 {couponCode.trim() && (
                   <p className={`text-xs mt-2 ${appliedCode ? 'text-primary' : 'text-destructive'}`}>

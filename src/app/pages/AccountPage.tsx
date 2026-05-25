@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ListPagination } from '../components/ListPagination';
 import { OrderDetailsDialog } from '../components/OrderDetailsDialog';
+import { FieldError, OptionalMark, fieldClassName } from '../components/FormFeedback';
 import { Home, ShoppingBag, Heart, MapPin, Settings, LogOut, Eye, KeyRound, EyeOff } from 'lucide-react';
 import { useAuth } from '../providers/AuthProvider';
 import { useData } from '../providers/DataProvider';
@@ -10,6 +11,17 @@ import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { toast } from 'sonner';
 import type { PaymentStatus } from '../types';
+import {
+  firstError,
+  type FieldErrors,
+  validateCity,
+  validateOptionalText,
+  validatePassword,
+  validatePhone,
+  validatePostalCode,
+  validateRequiredText,
+  validationLimits,
+} from '../lib/validation';
 
 function formatDateTime(iso: string): string {
   try {
@@ -78,6 +90,8 @@ export function AccountPage() {
   }));
 
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+  const [addressErrors, setAddressErrors] = useState<FieldErrors>({});
+  const [profileErrors, setProfileErrors] = useState<FieldErrors>({});
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -85,6 +99,7 @@ export function AccountPage() {
   });
   const [showPasswords, setShowPasswords] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordFieldErrors, setPasswordFieldErrors] = useState<FieldErrors>({});
 
   const menuItems = [
     { id: 'dashboard', label: 'Pulpit', icon: Home },
@@ -145,7 +160,7 @@ export function AccountPage() {
                 </div>
                 <div className="mt-4 pt-4 border-t border-border text-sm text-muted-foreground">
                   <div><span className="font-medium text-foreground">Adres dostawy:</span> {guestCompletedOrder.delivery.addressLine1}, {guestCompletedOrder.delivery.addressPostalCode} {guestCompletedOrder.delivery.addressCity}</div>
-                  <div className="mt-1"><span className="font-medium text-foreground">Uwagi:</span> {guestCompletedOrder.delivery.notes?.trim() || 'Brak uwag'}</div>
+                  <div className="mt-1"><span className="font-medium text-foreground">Uwagi:</span> {guestCompletedOrder.delivery.notes?.trim() || 'Brak'}</div>
                 </div>
               </div>
               <p className="text-muted-foreground mb-6">
@@ -319,12 +334,10 @@ export function AccountPage() {
                             <div className="text-sm text-muted-foreground">{formatDateTime(order.createdAt)}</div>
                           </div>
                           <div className="text-right">
-                            <div className="text-xs text-muted-foreground">Łączna kwota zamówienia</div>
-                            <div className="font-bold text-lg text-primary">{order.total} zł</div>
                             <OrderDetailsDialog
                               order={order}
                               trigger={(
-                                <button type="button" className="mt-2 text-sm text-primary hover:underline">
+                                <button type="button" className="text-sm text-primary hover:underline">
                                   Szczegóły
                                 </button>
                               )}
@@ -332,9 +345,9 @@ export function AccountPage() {
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2 mt-3 text-xs font-medium">
-                          <span className="bg-secondary text-foreground px-3 py-1 rounded-full">Status realizacji: {order.status}</span>
-                          <span className={`px-3 py-1 rounded-full ${paymentStatusClasses(order.paymentStatus)}`}>
+                        <div className="flex flex-wrap gap-2 mt-3 text-xs">
+                          <span className="bg-secondary text-foreground px-3 py-1 rounded-full font-medium">Status realizacji: {order.status}</span>
+                          <span className={`px-3 py-1 rounded-full font-medium ${paymentStatusClasses(order.paymentStatus)}`}>
                             Płatność: {order.paymentStatus}
                           </span>
                         </div>
@@ -343,13 +356,17 @@ export function AccountPage() {
                             <span className="font-medium text-foreground">Adres dostawy:</span> {order.delivery.addressLine1}, {order.delivery.addressPostalCode} {order.delivery.addressCity}
                           </div>
                           <div className="mt-1">
-                            <span className="font-medium text-foreground">Uwagi:</span> {order.delivery.notes?.trim() || 'Brak uwag'}
+                            <span className="font-medium text-foreground">Uwagi:</span> {order.delivery.notes?.trim() || 'Brak'}
                           </div>
                           <div className="mt-1">
                             <span className="font-medium text-foreground">Metoda płatności:</span> {order.paymentMethod}
                           </div>
                         </div>
                         <div className="mt-4 pt-4 border-t border-border space-y-2 text-sm">
+                          <div className="mb-3 flex items-center justify-end gap-2">
+                            <span className="font-medium text-foreground">Łączna kwota zamówienia:</span>
+                            <span className="text-lg font-bold text-primary">{order.total} zł</span>
+                          </div>
                           {order.items.map((it, idx) => (
                             <div key={idx} className="flex justify-between">
                               <span>{it.dietName} • {it.calories} kcal • {it.days} dni</span>
@@ -429,35 +446,20 @@ export function AccountPage() {
                 <p className="text-muted-foreground mb-4">
                   Te dane zostaną podpowiedziane w koszyku przy kolejnych zamówieniach.
                 </p>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium mb-2">Adres</label>
-                    <input
-                      value={profileForm.addressLine1}
-                      onChange={(e) => setProfileForm((p) => ({ ...p, addressLine1: e.target.value }))}
-                      className="w-full px-4 py-2 border border-border rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Miasto</label>
-                    <input
-                      value={profileForm.addressCity}
-                      onChange={(e) => setProfileForm((p) => ({ ...p, addressCity: e.target.value }))}
-                      className="w-full px-4 py-2 border border-border rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Kod pocztowy</label>
-                    <input
-                      value={profileForm.addressPostalCode}
-                      onChange={(e) => setProfileForm((p) => ({ ...p, addressPostalCode: e.target.value }))}
-                      className="w-full px-4 py-2 border border-border rounded-lg"
-                    />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
+                <form
+                  className="grid sm:grid-cols-2 gap-4"
+                  noValidate
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const nextErrors: FieldErrors = {};
+                    const addressError = validateRequiredText(profileForm.addressLine1, 'Adres', 5, validationLimits.addressMax);
+                    const cityError = validateCity(profileForm.addressCity, true, true);
+                    const postalCodeError = validatePostalCode(profileForm.addressPostalCode);
+                    if (addressError) nextErrors.addressLine1 = addressError;
+                    if (cityError) nextErrors.addressCity = cityError;
+                    if (postalCodeError) nextErrors.addressPostalCode = postalCodeError;
+                    setAddressErrors(nextErrors);
+                    if (firstError(nextErrors)) return;
                     const res = updateProfile({
                       addressLine1: profileForm.addressLine1,
                       addressCity: profileForm.addressCity,
@@ -469,12 +471,63 @@ export function AccountPage() {
                     } else {
                       setProfileMsg(res.error);
                     }
-                    window.setTimeout(() => setProfileMsg(null), 2000);
                   }}
-                  className="mt-4 px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90"
                 >
-                  Zapisz
-                </button>
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium mb-2">Adres</label>
+                    <input
+                      value={profileForm.addressLine1}
+                      maxLength={validationLimits.addressMax}
+                      autoComplete="street-address"
+                      placeholder="Ulica, numer domu/mieszkania"
+                      onChange={(e) => {
+                        setProfileForm((p) => ({ ...p, addressLine1: e.target.value }));
+                        setAddressErrors((errors) => ({ ...errors, addressLine1: '' }));
+                      }}
+                      aria-invalid={!!addressErrors.addressLine1}
+                      className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(addressErrors.addressLine1)}`}
+                    />
+                    <FieldError message={addressErrors.addressLine1} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Miasto</label>
+                    <input
+                      value={profileForm.addressCity}
+                      maxLength={validationLimits.cityMax}
+                      autoComplete="address-level2"
+                      onChange={(e) => {
+                        setProfileForm((p) => ({ ...p, addressCity: e.target.value }));
+                        setAddressErrors((errors) => ({ ...errors, addressCity: '' }));
+                      }}
+                      aria-invalid={!!addressErrors.addressCity}
+                      className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(addressErrors.addressCity)}`}
+                    />
+                    <FieldError message={addressErrors.addressCity} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Kod pocztowy</label>
+                    <input
+                      value={profileForm.addressPostalCode}
+                      maxLength={6}
+                      inputMode="numeric"
+                      autoComplete="postal-code"
+                      placeholder="00-000"
+                      onChange={(e) => {
+                        setProfileForm((p) => ({ ...p, addressPostalCode: e.target.value }));
+                        setAddressErrors((errors) => ({ ...errors, addressPostalCode: '' }));
+                      }}
+                      aria-invalid={!!addressErrors.addressPostalCode}
+                      className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(addressErrors.addressPostalCode)}`}
+                    />
+                    <FieldError message={addressErrors.addressPostalCode} />
+                  </div>
+                  <button
+                    type="submit"
+                    className="sm:col-span-2 mt-2 w-fit px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90"
+                  >
+                    Zapisz
+                  </button>
+                </form>
                 {profileMsg && <div className="text-sm text-muted-foreground mt-3">{profileMsg}</div>}
               </div>
             </div>
@@ -486,8 +539,18 @@ export function AccountPage() {
               <div className="bg-white border border-border rounded-xl p-6">
                 <form
                   className="space-y-4"
+                  noValidate
                   onSubmit={(e) => {
                     e.preventDefault();
+                    const nextErrors: FieldErrors = {};
+                    const firstNameError = validateRequiredText(profileForm.firstName, 'Imię', 2, validationLimits.nameMax);
+                    const lastNameError = validateRequiredText(profileForm.lastName, 'Nazwisko', 2, validationLimits.nameMax);
+                    const phoneError = validatePhone(profileForm.phone, false);
+                    if (firstNameError) nextErrors.firstName = firstNameError;
+                    if (lastNameError) nextErrors.lastName = lastNameError;
+                    if (phoneError) nextErrors.phone = phoneError;
+                    setProfileErrors(nextErrors);
+                    if (firstError(nextErrors)) return;
                     const res = updateProfile({
                       firstName: profileForm.firstName,
                       lastName: profileForm.lastName,
@@ -508,18 +571,32 @@ export function AccountPage() {
                       <input
                         type="text"
                         value={profileForm.firstName}
-                        onChange={(e) => setProfileForm((p) => ({ ...p, firstName: e.target.value }))}
-                        className="w-full px-4 py-2 border border-border rounded-lg"
+                        maxLength={validationLimits.nameMax}
+                        autoComplete="given-name"
+                        onChange={(e) => {
+                          setProfileForm((p) => ({ ...p, firstName: e.target.value }));
+                          setProfileErrors((errors) => ({ ...errors, firstName: '' }));
+                        }}
+                        aria-invalid={!!profileErrors.firstName}
+                        className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(profileErrors.firstName)}`}
                       />
+                      <FieldError message={profileErrors.firstName} />
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-2">Nazwisko</label>
                       <input
                         type="text"
                         value={profileForm.lastName}
-                        onChange={(e) => setProfileForm((p) => ({ ...p, lastName: e.target.value }))}
-                        className="w-full px-4 py-2 border border-border rounded-lg"
+                        maxLength={validationLimits.nameMax}
+                        autoComplete="family-name"
+                        onChange={(e) => {
+                          setProfileForm((p) => ({ ...p, lastName: e.target.value }));
+                          setProfileErrors((errors) => ({ ...errors, lastName: '' }));
+                        }}
+                        aria-invalid={!!profileErrors.lastName}
+                        className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(profileErrors.lastName)}`}
                       />
+                      <FieldError message={profileErrors.lastName} />
                     </div>
                   </div>
                   <div>
@@ -532,13 +609,21 @@ export function AccountPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-2">Telefon</label>
+                    <label className="block text-sm font-medium mb-2">Telefon<OptionalMark /></label>
                     <input
                       type="tel"
                       value={profileForm.phone}
-                      onChange={(e) => setProfileForm((p) => ({ ...p, phone: e.target.value }))}
-                      className="w-full px-4 py-2 border border-border rounded-lg"
+                      maxLength={validationLimits.phoneMax}
+                      autoComplete="tel"
+                      placeholder="501 234 567"
+                      onChange={(e) => {
+                        setProfileForm((p) => ({ ...p, phone: e.target.value }));
+                        setProfileErrors((errors) => ({ ...errors, phone: '' }));
+                      }}
+                      aria-invalid={!!profileErrors.phone}
+                      className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(profileErrors.phone)}`}
                     />
+                    <FieldError message={profileErrors.phone} />
                   </div>
                   <button
                     type="submit"
@@ -561,13 +646,18 @@ export function AccountPage() {
                 </p>
                 <form
                   className="space-y-4 max-w-xl"
+                  noValidate
                   onSubmit={(e) => {
                     e.preventDefault();
                     setPasswordError(null);
-                    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-                      setPasswordError('Nowe hasła nie są takie same.');
-                      return;
-                    }
+                    const nextErrors: FieldErrors = {};
+                    if (!passwordForm.currentPassword) nextErrors.currentPassword = 'Bieżące hasło jest wymagane.';
+                    const newPasswordError = validatePassword(passwordForm.newPassword, 'Nowe hasło');
+                    if (newPasswordError) nextErrors.newPassword = newPasswordError;
+                    if (!passwordForm.confirmPassword) nextErrors.confirmPassword = 'Powtórzenie hasła jest wymagane.';
+                    else if (passwordForm.newPassword !== passwordForm.confirmPassword) nextErrors.confirmPassword = 'Nowe hasła nie są takie same.';
+                    setPasswordFieldErrors(nextErrors);
+                    if (firstError(nextErrors)) return;
                     const result = changePassword({
                       currentPassword: passwordForm.currentPassword,
                       newPassword: passwordForm.newPassword,
@@ -590,30 +680,49 @@ export function AccountPage() {
                     <input
                       type={showPasswords ? 'text' : 'password'}
                       value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm((form) => ({ ...form, currentPassword: e.target.value }))}
-                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                      required
+                      maxLength={validationLimits.passwordMax}
+                      autoComplete="current-password"
+                      onChange={(e) => {
+                        setPasswordForm((form) => ({ ...form, currentPassword: e.target.value }));
+                        setPasswordFieldErrors((errors) => ({ ...errors, currentPassword: '' }));
+                      }}
+                      aria-invalid={!!passwordFieldErrors.currentPassword}
+                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(passwordFieldErrors.currentPassword)}`}
                     />
+                    <FieldError message={passwordFieldErrors.currentPassword} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">Nowe hasło</label>
                     <input
                       type={showPasswords ? 'text' : 'password'}
                       value={passwordForm.newPassword}
-                      onChange={(e) => setPasswordForm((form) => ({ ...form, newPassword: e.target.value }))}
-                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                      required
+                      maxLength={validationLimits.passwordMax}
+                      autoComplete="new-password"
+                      onChange={(e) => {
+                        setPasswordForm((form) => ({ ...form, newPassword: e.target.value }));
+                        setPasswordFieldErrors((errors) => ({ ...errors, newPassword: '', confirmPassword: '' }));
+                      }}
+                      aria-invalid={!!passwordFieldErrors.newPassword}
+                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(passwordFieldErrors.newPassword)}`}
                     />
+                    <FieldError message={passwordFieldErrors.newPassword} />
+                    {!passwordFieldErrors.newPassword && <p className="mt-1 text-xs text-muted-foreground">Minimum 8 znaków, w tym litera i cyfra.</p>}
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">Powtórz nowe hasło</label>
                     <input
                       type={showPasswords ? 'text' : 'password'}
                       value={passwordForm.confirmPassword}
-                      onChange={(e) => setPasswordForm((form) => ({ ...form, confirmPassword: e.target.value }))}
-                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                      required
+                      maxLength={validationLimits.passwordMax}
+                      autoComplete="new-password"
+                      onChange={(e) => {
+                        setPasswordForm((form) => ({ ...form, confirmPassword: e.target.value }));
+                        setPasswordFieldErrors((errors) => ({ ...errors, confirmPassword: '' }));
+                      }}
+                      aria-invalid={!!passwordFieldErrors.confirmPassword}
+                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(passwordFieldErrors.confirmPassword)}`}
                     />
+                    <FieldError message={passwordFieldErrors.confirmPassword} />
                   </div>
                   <button
                     type="button"
@@ -650,6 +759,7 @@ function ReviewForm({
 }) {
   const [rating, setRating] = useState<number>(initialRating);
   const [comment, setComment] = useState<string>(initialComment);
+  const [commentError, setCommentError] = useState<string | undefined>();
 
   return (
     <div className="mt-4">
@@ -669,18 +779,28 @@ function ReviewForm({
           </select>
         </div>
         <div className="sm:col-span-2">
-          <label className="block text-sm font-medium mb-2">Komentarz</label>
+          <label className="block text-sm font-medium mb-2">Komentarz<OptionalMark /></label>
           <textarea
             value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-lg min-h-[90px]"
+            maxLength={validationLimits.reviewMax}
+            onChange={(e) => {
+              setComment(e.target.value);
+              setCommentError(undefined);
+            }}
+            aria-invalid={!!commentError}
+            className={`w-full px-4 py-2 border rounded-lg min-h-[90px] ${fieldClassName(commentError)}`}
             placeholder="Co Ci się podobało?"
           />
+          <FieldError message={commentError} />
+          <p className="mt-1 text-xs text-muted-foreground">{comment.length}/{validationLimits.reviewMax}</p>
         </div>
       </div>
       <button
         type="button"
         onClick={() => {
+          const nextError = validateOptionalText(comment, 'Komentarz', validationLimits.reviewMax);
+          setCommentError(nextError);
+          if (nextError) return;
           onSave(rating, comment);
         }}
         className="mt-3 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"

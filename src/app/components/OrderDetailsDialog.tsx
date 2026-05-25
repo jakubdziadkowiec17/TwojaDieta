@@ -65,7 +65,7 @@ export function OrderDetailsDialog({ order, trigger }: OrderDetailsDialogProps) 
             <div>{order.delivery.addressPostalCode} {order.delivery.addressCity}</div>
             <div className="mt-2 text-muted-foreground">
               <span className="font-medium text-foreground">Uwagi:</span>{' '}
-              {order.delivery.notes?.trim() || 'Brak uwag'}
+              {order.delivery.notes?.trim() || 'Brak'}
             </div>
           </div>
         </div>

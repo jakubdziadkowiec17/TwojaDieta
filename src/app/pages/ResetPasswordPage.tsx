@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Eye, EyeOff } from "lucide-react";
 import { Breadcrumbs } from "../components/Breadcrumbs";
+import { FieldError, fieldClassName } from "../components/FormFeedback";
 import { useAuth } from "../providers/AuthProvider";
 import { toast } from "sonner";
+import { firstError, type FieldErrors, validateEmail, validatePassword, validationLimits } from "../lib/validation";
 
 export function ResetPasswordPage() {
   const { resetPassword } = useAuth();
@@ -13,14 +15,20 @@ export function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (newPassword !== confirmPassword) {
-      setError("Hasła nie są takie same.");
-      return;
-    }
+    const nextErrors: FieldErrors = {};
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(newPassword, "Nowe hasło");
+    if (emailError) nextErrors.email = emailError;
+    if (passwordError) nextErrors.newPassword = passwordError;
+    if (!confirmPassword) nextErrors.confirmPassword = "Powtórzenie hasła jest wymagane.";
+    else if (newPassword !== confirmPassword) nextErrors.confirmPassword = "Hasła nie są takie same.";
+    setFieldErrors(nextErrors);
+    if (firstError(nextErrors)) return;
 
     const result = resetPassword({ email, newPassword });
     if (!result.ok) {
@@ -70,7 +78,7 @@ export function ResetPasswordPage() {
               </Link>
             </div>
           ) : (
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={submit} className="space-y-4" noValidate>
               {error && (
                 <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3">
                   {error}
@@ -81,12 +89,18 @@ export function ResetPasswordPage() {
                 <input
                   type="email"
                   id="reset-email"
-                  required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={validationLimits.emailMax}
+                  autoComplete="email"
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setFieldErrors((errors) => ({ ...errors, email: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.email}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.email)}`}
                   placeholder="Wpisz swój adres e-mail"
                 />
+                <FieldError message={fieldErrors.email} />
               </div>
               <div>
                 <label htmlFor="reset-new-password" className="block text-sm font-medium mb-2">Nowe hasło</label>
@@ -94,10 +108,15 @@ export function ResetPasswordPage() {
                   <input
                     type={showPassword ? "text" : "password"}
                     id="reset-new-password"
-                    required
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-3 border border-border rounded-lg pr-12 focus:outline-none focus:ring-2 focus:ring-primary"
+                    maxLength={validationLimits.passwordMax}
+                    autoComplete="new-password"
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      setFieldErrors((errors) => ({ ...errors, newPassword: "", confirmPassword: "" }));
+                    }}
+                    aria-invalid={!!fieldErrors.newPassword}
+                    className={`w-full px-4 py-3 border rounded-lg pr-12 focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.newPassword)}`}
                     placeholder="Wpisz nowe hasło"
                   />
                   <button
@@ -109,18 +128,26 @@ export function ResetPasswordPage() {
                     {showPassword ? <EyeOff className="w-5 h-5 text-muted-foreground" /> : <Eye className="w-5 h-5 text-muted-foreground" />}
                   </button>
                 </div>
+                <FieldError message={fieldErrors.newPassword} />
+                {!fieldErrors.newPassword && <p className="mt-1 text-xs text-muted-foreground">Minimum 8 znaków, w tym litera i cyfra.</p>}
               </div>
               <div>
                 <label htmlFor="reset-confirm-password" className="block text-sm font-medium mb-2">Powtórz nowe hasło</label>
                 <input
                   type={showPassword ? "text" : "password"}
                   id="reset-confirm-password"
-                  required
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={validationLimits.passwordMax}
+                  autoComplete="new-password"
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setFieldErrors((errors) => ({ ...errors, confirmPassword: "" }));
+                  }}
+                  aria-invalid={!!fieldErrors.confirmPassword}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.confirmPassword)}`}
                   placeholder="Powtórz nowe hasło"
                 />
+                <FieldError message={fieldErrors.confirmPassword} />
               </div>
               <button className="w-full py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
                 USTAW NOWE HASŁO

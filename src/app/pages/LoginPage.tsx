@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Eye, EyeOff } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
+import { FieldError, fieldClassName } from '../components/FormFeedback';
 import { useAuth } from '../providers/AuthProvider';
+import { firstError, type FieldErrors, validateEmail, validateLoginPassword, validationLimits } from '../lib/validation';
 
 export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -14,12 +16,20 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const redirect = searchParams.get('redirect');
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    const nextErrors: FieldErrors = {};
+    const emailError = validateEmail(email);
+    const passwordError = validateLoginPassword(password);
+    if (emailError) nextErrors.email = emailError;
+    if (passwordError) nextErrors.password = passwordError;
+    setFieldErrors(nextErrors);
+    if (firstError(nextErrors)) return;
 
     const normalizedEmail = email.trim().toLowerCase();
     const willBeAdmin = users.find((u) => u.email === normalizedEmail)?.role === 'admin';
@@ -60,7 +70,7 @@ export function LoginPage() {
           <h2 className="text-3xl font-bold mb-2">ZALOGUJ SIĘ</h2>
           <p className="text-muted-foreground mb-8">Witaj ponownie! Zaloguj się, aby kontynuować.</p>
 
-          <form className="space-y-4" onSubmit={onSubmit}>
+          <form className="space-y-4" onSubmit={onSubmit} noValidate>
             {error && (
               <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3">
                 {error}
@@ -75,9 +85,16 @@ export function LoginPage() {
                 id="email"
                 placeholder="Wpisz swój adres e-mail"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                maxLength={validationLimits.emailMax}
+                autoComplete="email"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setFieldErrors((errors) => ({ ...errors, email: '' }));
+                }}
+                aria-invalid={!!fieldErrors.email}
+                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.email)}`}
               />
+              <FieldError message={fieldErrors.email} />
             </div>
 
             <div>
@@ -90,8 +107,14 @@ export function LoginPage() {
                   id="password"
                   placeholder="Wpisz swoje hasło"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg pr-12 focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={validationLimits.passwordMax}
+                  autoComplete="current-password"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFieldErrors((errors) => ({ ...errors, password: '' }));
+                  }}
+                  aria-invalid={!!fieldErrors.password}
+                  className={`w-full px-4 py-3 border rounded-lg pr-12 focus:outline-none focus:ring-2 ${fieldClassName(fieldErrors.password)}`}
                 />
                 <button
                   type="button"
@@ -105,6 +128,7 @@ export function LoginPage() {
                   )}
                 </button>
               </div>
+              <FieldError message={fieldErrors.password} />
             </div>
 
             <div className="flex items-center justify-between">

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ListPagination } from '../components/ListPagination';
 import { OrderDetailsDialog } from '../components/OrderDetailsDialog';
+import { FieldError, OptionalMark, fieldClassName } from '../components/FormFeedback';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,17 @@ import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { formatVariantsInput, getMinPrice, parseVariantsInput } from '../lib/dietVariants';
 import { toast } from 'sonner';
+import {
+  firstError,
+  type FieldErrors,
+  validateCouponCode,
+  validateDietVariants,
+  validateOptionalText,
+  validateOptionalUrl,
+  validateOptionalUrlList,
+  validateRequiredText,
+  validationLimits,
+} from '../lib/validation';
 
 function formatDateTime(iso: string): string {
   try {
@@ -164,12 +176,15 @@ export function AdminPage() {
     allergens: '',
     sampleMenu: '',
   }));
+  const [dietErrors, setDietErrors] = useState<FieldErrors>({});
   const [discountForm, setDiscountForm] = useState<{ code: string; kind: DiscountKind; value: string }>({
     code: '',
     kind: 'percentage',
     value: '10',
   });
   const [discountError, setDiscountError] = useState<string | null>(null);
+  const [discountCodeError, setDiscountCodeError] = useState<string | null>(null);
+  const [discountValueError, setDiscountValueError] = useState<string | null>(null);
 
   const loadDietToForm = (diet: Diet) => {
     setDietForm({
@@ -188,6 +203,7 @@ export function AdminPage() {
 
   const resetDietForm = () => {
     setEditingDietId(null);
+    setDietErrors({});
     setDietForm({
       name: '',
       shortDescription: '',
@@ -409,11 +425,7 @@ export function AdminPage() {
                             <div className="text-sm text-muted-foreground">{formatDateTime(order.createdAt)} • {order.customer.email}</div>
                           </div>
                           <div className="flex flex-wrap items-end justify-end gap-3">
-                            <div className="text-right mr-2">
-                              <div className="text-xs text-muted-foreground">Łączna kwota zamówienia</div>
-                              <div className="font-bold text-lg text-primary">{order.total} zł</div>
-                            </div>
-                            <label className="text-xs text-muted-foreground">
+                            <label className="text-xs font-medium text-muted-foreground">
                               Status realizacji
                               <select
                                 value={order.status}
@@ -422,7 +434,7 @@ export function AdminPage() {
                                   updateOrderStatus(order.id, status);
                                   toast.success(`Zmieniono status zamówienia na: ${status}.`);
                                 }}
-                                className="block mt-1 px-3 py-2 border border-border rounded-lg text-foreground bg-white"
+                                className="block mt-1 px-3 py-2 border border-border rounded-lg font-medium text-foreground bg-white"
                               >
                                 {(['Nowe', 'W trakcie', 'Dostarczone', 'Anulowane'] as OrderStatus[]).map((s) => (
                                   <option key={s} value={s}>{s}</option>
@@ -430,7 +442,7 @@ export function AdminPage() {
                               </select>
                             </label>
                             <div>
-                              <div className="text-xs text-muted-foreground mb-1">Status płatności</div>
+                              <div className="text-xs font-medium text-muted-foreground mb-1">Status płatności</div>
                               <span className={`inline-flex px-3 py-2 rounded-full text-sm font-medium ${paymentStatusClasses(order.paymentStatus)}`}>
                                 {order.paymentStatus}
                               </span>
@@ -451,12 +463,16 @@ export function AdminPage() {
                             <span className="font-medium text-foreground">Adres dostawy:</span> {order.delivery.addressLine1}, {order.delivery.addressPostalCode} {order.delivery.addressCity}
                           </div>
                           <div className="text-muted-foreground mt-1">
-                            <span className="font-medium text-foreground">Uwagi:</span> {order.delivery.notes?.trim() || 'Brak uwag'}
+                            <span className="font-medium text-foreground">Uwagi:</span> {order.delivery.notes?.trim() || 'Brak'}
                           </div>
                           <div className="text-muted-foreground mt-1">
                             <span className="font-medium text-foreground">Metoda płatności:</span> {order.paymentMethod}
                           </div>
                           <div className="mt-4 space-y-2">
+                            <div className="mb-3 flex items-center justify-end gap-2">
+                              <span className="font-medium text-foreground">Łączna kwota zamówienia:</span>
+                              <span className="text-lg font-bold text-primary">{order.total} zł</span>
+                            </div>
                             {order.items.map((it, idx) => (
                               <div key={idx} className="flex justify-between">
                                 <span>{it.dietName} • {it.calories} kcal • {it.days} dni • start: {it.startDate}</span>
@@ -511,6 +527,7 @@ export function AdminPage() {
                             className="px-3 py-2 border border-border rounded-lg hover:bg-secondary"
                             onClick={() => {
                               setEditingDietId(d.id);
+                              setDietErrors({});
                               loadDietToForm(d);
                             }}
                           >
@@ -565,12 +582,28 @@ export function AdminPage() {
                   <h3 className="font-bold mb-4">{editingDiet ? 'Edycja diety' : 'Dodaj dietę'}</h3>
                   <form
                     className="space-y-4"
+                    noValidate
                     onSubmit={(e) => {
                       e.preventDefault();
 
                       const variants = parseVariantsInput(dietForm.variants);
-                      if (!dietForm.name.trim() || !dietForm.shortDescription.trim() || !dietForm.description.trim()) return;
-                      if (variants.length === 0) return;
+                      const nextErrors: FieldErrors = {};
+                      const nameError = validateRequiredText(dietForm.name, 'Nazwa', 2, validationLimits.dietNameMax);
+                      const shortError = validateRequiredText(dietForm.shortDescription, 'Krótki opis', 10, validationLimits.shortDescriptionMax);
+                      const descriptionError = validateRequiredText(dietForm.description, 'Opis', 20, validationLimits.descriptionMax);
+                      const imageError = validateOptionalUrl(dietForm.image, 'URL miniatury');
+                      const imagesError = validateOptionalUrlList(dietForm.images);
+                      const variantsError = validateDietVariants(dietForm.variants);
+                      const menuError = validateOptionalText(dietForm.sampleMenu, 'Przykładowe menu', validationLimits.menuMax);
+                      if (nameError) nextErrors.name = nameError;
+                      if (shortError) nextErrors.shortDescription = shortError;
+                      if (descriptionError) nextErrors.description = descriptionError;
+                      if (imageError) nextErrors.image = imageError;
+                      if (imagesError) nextErrors.images = imagesError;
+                      if (variantsError) nextErrors.variants = variantsError;
+                      if (menuError) nextErrors.sampleMenu = menuError;
+                      setDietErrors(nextErrors);
+                      if (firstError(nextErrors)) return;
 
                       const image = dietForm.image.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&h=600&fit=crop';
                       const images = parseCsvStrings(dietForm.images);
@@ -603,43 +636,50 @@ export function AdminPage() {
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium mb-2">Nazwa</label>
-                        <input value={dietForm.name} onChange={(e) => setDietForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
+                        <input value={dietForm.name} maxLength={validationLimits.dietNameMax} onChange={(e) => { setDietForm((f) => ({ ...f, name: e.target.value })); setDietErrors((errors) => ({ ...errors, name: '' })); }} aria-invalid={!!dietErrors.name} className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(dietErrors.name)}`} />
+                        <FieldError message={dietErrors.name} />
                       </div>
                       <div className="sm:col-span-2">
                         <label className="block text-sm font-medium mb-2">Krótki opis</label>
-                        <input value={dietForm.shortDescription} onChange={(e) => setDietForm((f) => ({ ...f, shortDescription: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
+                        <input value={dietForm.shortDescription} maxLength={validationLimits.shortDescriptionMax} onChange={(e) => { setDietForm((f) => ({ ...f, shortDescription: e.target.value })); setDietErrors((errors) => ({ ...errors, shortDescription: '' })); }} aria-invalid={!!dietErrors.shortDescription} className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(dietErrors.shortDescription)}`} />
+                        <FieldError message={dietErrors.shortDescription} />
                       </div>
                       <div className="sm:col-span-2">
                         <label className="block text-sm font-medium mb-2">Opis</label>
-                        <textarea value={dietForm.description} onChange={(e) => setDietForm((f) => ({ ...f, description: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg min-h-[120px]" />
+                        <textarea value={dietForm.description} maxLength={validationLimits.descriptionMax} onChange={(e) => { setDietForm((f) => ({ ...f, description: e.target.value })); setDietErrors((errors) => ({ ...errors, description: '' })); }} aria-invalid={!!dietErrors.description} className={`w-full px-4 py-2 border rounded-lg min-h-[120px] ${fieldClassName(dietErrors.description)}`} />
+                        <FieldError message={dietErrors.description} />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-sm font-medium mb-2">URL zdjęcia (miniatura)</label>
-                        <input value={dietForm.image} onChange={(e) => setDietForm((f) => ({ ...f, image: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
+                        <label className="block text-sm font-medium mb-2">URL zdjęcia (miniatura)<OptionalMark /></label>
+                        <input value={dietForm.image} maxLength={validationLimits.csvMax} onChange={(e) => { setDietForm((f) => ({ ...f, image: e.target.value })); setDietErrors((errors) => ({ ...errors, image: '' })); }} aria-invalid={!!dietErrors.image} className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(dietErrors.image)}`} />
+                        <FieldError message={dietErrors.image} />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-sm font-medium mb-2">URL zdjęć (CSV)</label>
-                        <input value={dietForm.images} onChange={(e) => setDietForm((f) => ({ ...f, images: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="url1, url2, url3" />
+                        <label className="block text-sm font-medium mb-2">URL zdjęć (CSV)<OptionalMark /></label>
+                        <input value={dietForm.images} maxLength={validationLimits.csvMax} onChange={(e) => { setDietForm((f) => ({ ...f, images: e.target.value })); setDietErrors((errors) => ({ ...errors, images: '' })); }} aria-invalid={!!dietErrors.images} className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(dietErrors.images)}`} placeholder="url1, url2, url3" />
+                        <FieldError message={dietErrors.images} />
                       </div>
                       <div className="sm:col-span-2">
                         <label className="block text-sm font-medium mb-2">Warianty: kaloryczność:cena / dzień (CSV)</label>
-                        <input value={dietForm.variants} onChange={(e) => setDietForm((f) => ({ ...f, variants: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="1500:69, 2000:79, 2500:89" />
+                        <input value={dietForm.variants} maxLength={validationLimits.csvMax} onChange={(e) => { setDietForm((f) => ({ ...f, variants: e.target.value })); setDietErrors((errors) => ({ ...errors, variants: '' })); }} aria-invalid={!!dietErrors.variants} className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(dietErrors.variants)}`} placeholder="1500:69, 2000:79, 2500:89" />
+                        <FieldError message={dietErrors.variants} />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2">Cel</label>
-                        <input value={dietForm.goal} onChange={(e) => setDietForm((f) => ({ ...f, goal: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="Utrata wagi / Budowa masy mięśniowej / Zdrowe odżywianie" />
+                        <label className="block text-sm font-medium mb-2">Cel<OptionalMark /></label>
+                        <input value={dietForm.goal} maxLength={validationLimits.shortDescriptionMax} onChange={(e) => setDietForm((f) => ({ ...f, goal: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="Utrata wagi / Budowa masy mięśniowej / Zdrowe odżywianie" />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-sm font-medium mb-2">Tagi / preferencje (CSV)</label>
-                        <input value={dietForm.tags} onChange={(e) => setDietForm((f) => ({ ...f, tags: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="Wegetariańska, Keto, Bezglutenowa..." />
+                        <label className="block text-sm font-medium mb-2">Tagi / preferencje (CSV)<OptionalMark /></label>
+                        <input value={dietForm.tags} maxLength={validationLimits.csvMax} onChange={(e) => setDietForm((f) => ({ ...f, tags: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" placeholder="Wegetariańska, Keto, Bezglutenowa..." />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-sm font-medium mb-2">Alergeny (CSV)</label>
-                        <input value={dietForm.allergens} onChange={(e) => setDietForm((f) => ({ ...f, allergens: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
+                        <label className="block text-sm font-medium mb-2">Alergeny (CSV)<OptionalMark /></label>
+                        <input value={dietForm.allergens} maxLength={validationLimits.csvMax} onChange={(e) => setDietForm((f) => ({ ...f, allergens: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg" />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="block text-sm font-medium mb-2">Przykładowe menu (1 linia = 1 pozycja)</label>
-                        <textarea value={dietForm.sampleMenu} onChange={(e) => setDietForm((f) => ({ ...f, sampleMenu: e.target.value }))} className="w-full px-4 py-2 border border-border rounded-lg min-h-[140px]" />
+                        <label className="block text-sm font-medium mb-2">Przykładowe menu (1 linia = 1 pozycja)<OptionalMark /></label>
+                        <textarea value={dietForm.sampleMenu} maxLength={validationLimits.menuMax} onChange={(e) => { setDietForm((f) => ({ ...f, sampleMenu: e.target.value })); setDietErrors((errors) => ({ ...errors, sampleMenu: '' })); }} aria-invalid={!!dietErrors.sampleMenu} className={`w-full px-4 py-2 border rounded-lg min-h-[140px] ${fieldClassName(dietErrors.sampleMenu)}`} />
+                        <FieldError message={dietErrors.sampleMenu} />
                       </div>
                     </div>
 
@@ -714,13 +754,30 @@ export function AdminPage() {
                   <h3 className="font-bold mb-4">Dodaj kod rabatowy</h3>
                   <form
                     className="space-y-4"
+                    noValidate
                     onSubmit={(e) => {
                       e.preventDefault();
                       setDiscountError(null);
+                      setDiscountCodeError(null);
+                      setDiscountValueError(null);
+                      const codeError = validateCouponCode(discountForm.code, true);
+                      if (codeError) {
+                        setDiscountCodeError(codeError);
+                        return;
+                      }
+                      const discountValue = Number(discountForm.value);
+                      if (!Number.isFinite(discountValue) || discountValue <= 0) {
+                        setDiscountValueError('Podaj dodatnią wartość rabatu.');
+                        return;
+                      }
+                      if (discountForm.kind === 'percentage' && discountValue > 100) {
+                        setDiscountValueError('Rabat procentowy nie może przekraczać 100%.');
+                        return;
+                      }
                       const result = addDiscountCode({
                         code: discountForm.code,
                         kind: discountForm.kind,
-                        value: Number(discountForm.value),
+                        value: discountValue,
                       });
                       if (!result.ok) {
                         setDiscountError(result.error);
@@ -739,10 +796,16 @@ export function AdminPage() {
                       <label className="block text-sm font-medium mb-2">Kod</label>
                       <input
                         value={discountForm.code}
-                        onChange={(e) => setDiscountForm((form) => ({ ...form, code: e.target.value.toUpperCase() }))}
-                        className="w-full px-4 py-2 border border-border rounded-lg uppercase"
+                        maxLength={validationLimits.couponMax}
+                        onChange={(e) => {
+                          setDiscountForm((form) => ({ ...form, code: e.target.value.toUpperCase() }));
+                          setDiscountCodeError(null);
+                        }}
+                        aria-invalid={!!discountCodeError}
+                        className={`w-full px-4 py-2 border rounded-lg uppercase ${fieldClassName(discountCodeError ?? undefined)}`}
                         placeholder="NP. LATO20"
                       />
+                      <FieldError message={discountCodeError ?? undefined} />
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-2">Rodzaj rabatu</label>
@@ -763,10 +826,17 @@ export function AdminPage() {
                         type="number"
                         min="1"
                         max={discountForm.kind === 'percentage' ? '100' : undefined}
+                        step="1"
+                        required
                         value={discountForm.value}
-                        onChange={(e) => setDiscountForm((form) => ({ ...form, value: e.target.value }))}
-                        className="w-full px-4 py-2 border border-border rounded-lg"
+                        onChange={(e) => {
+                          setDiscountForm((form) => ({ ...form, value: e.target.value }));
+                          setDiscountValueError(null);
+                        }}
+                        aria-invalid={!!discountValueError}
+                        className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(discountValueError ?? undefined)}`}
                       />
+                      <FieldError message={discountValueError ?? undefined} />
                     </div>
                     <button type="submit" className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90">
                       Dodaj kod

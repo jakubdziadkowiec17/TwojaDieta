@@ -3,6 +3,7 @@ import { createId } from "../lib/id";
 import { getVariantPrice, normalizeDietVariants } from "../lib/dietVariants";
 import { calculateDeliveryCost } from "../lib/pricing";
 import { readJson, writeJson } from "../lib/storage";
+import { validateCouponCode } from "../lib/validation";
 import type {
   DataContextValue,
   Diet,
@@ -296,9 +297,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       addDiscountCode: ({ code, kind, value }) => {
         const normalizedCode = code.trim().toUpperCase();
-        if (!normalizedCode) {
-          return { ok: false, error: "Podaj kod rabatowy." };
-        }
+        const codeError = validateCouponCode(normalizedCode, true);
+        if (codeError) return { ok: false, error: codeError };
         if (discountCodes.some((discount) => discount.code === normalizedCode)) {
           return { ok: false, error: "Kod o tej nazwie już istnieje." };
         }

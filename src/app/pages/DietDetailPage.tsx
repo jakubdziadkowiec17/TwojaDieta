@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { DurationSelect } from '../components/DurationSelect';
+import { FieldError, OptionalMark, fieldClassName } from '../components/FormFeedback';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +24,16 @@ import { useCart } from '../providers/CartProvider';
 import { useAuth } from '../providers/AuthProvider';
 import { formatVariantsInput, getVariantPrice, parseVariantsInput } from '../lib/dietVariants';
 import { toast } from 'sonner';
+import {
+  firstError,
+  type FieldErrors,
+  validateDietVariants,
+  validateOptionalText,
+  validateOptionalUrl,
+  validateOptionalUrlList,
+  validateRequiredText,
+  validationLimits,
+} from '../lib/validation';
 
 function parseCsvStrings(value: string): string[] {
   return value
@@ -60,6 +71,7 @@ export function DietDetailPage() {
 
   const [adminEditOpen, setAdminEditOpen] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminFieldErrors, setAdminFieldErrors] = useState<FieldErrors>({});
   const [adminForm, setAdminForm] = useState(() => ({
     name: diet?.name ?? '',
     shortDescription: diet?.shortDescription ?? '',
@@ -76,6 +88,7 @@ export function DietDetailPage() {
   const openAdminEdit = () => {
     if (!diet) return;
     setAdminError(null);
+    setAdminFieldErrors({});
     setAdminForm({
       name: diet.name,
       shortDescription: diet.shortDescription,
@@ -180,18 +193,31 @@ export function DietDetailPage() {
           {adminEditOpen && (
             <form
               className="mt-6 space-y-4"
+              noValidate
               onSubmit={(e) => {
                 e.preventDefault();
                 setAdminError(null);
                 if (!diet) return;
 
                 const variants = parseVariantsInput(adminForm.variants);
-                if (!adminForm.name.trim() || !adminForm.shortDescription.trim() || !adminForm.description.trim()) {
-                  setAdminError('Uzupełnij: nazwa, krótki opis, opis.');
-                  return;
-                }
-                if (variants.length === 0) {
-                  setAdminError('Podaj co najmniej jeden wariant w formacie kalorie:cena, np. 1500:69.');
+                const nextErrors: FieldErrors = {};
+                const nameError = validateRequiredText(adminForm.name, 'Nazwa', 2, validationLimits.dietNameMax);
+                const shortError = validateRequiredText(adminForm.shortDescription, 'Krótki opis', 10, validationLimits.shortDescriptionMax);
+                const descriptionError = validateRequiredText(adminForm.description, 'Opis', 20, validationLimits.descriptionMax);
+                const imageError = validateOptionalUrl(adminForm.image, 'URL miniatury');
+                const imagesError = validateOptionalUrlList(adminForm.images);
+                const variantsError = validateDietVariants(adminForm.variants);
+                const menuError = validateOptionalText(adminForm.sampleMenu, 'Przykładowe menu', validationLimits.menuMax);
+                if (nameError) nextErrors.name = nameError;
+                if (shortError) nextErrors.shortDescription = shortError;
+                if (descriptionError) nextErrors.description = descriptionError;
+                if (imageError) nextErrors.image = imageError;
+                if (imagesError) nextErrors.images = imagesError;
+                if (variantsError) nextErrors.variants = variantsError;
+                if (menuError) nextErrors.sampleMenu = menuError;
+                setAdminFieldErrors(nextErrors);
+                if (firstError(nextErrors)) {
+                  setAdminError('Popraw zaznaczone pola formularza.');
                   return;
                 }
 
@@ -226,85 +252,109 @@ export function DietDetailPage() {
                   <label className="block text-sm font-medium mb-2">Nazwa</label>
                   <input
                     value={adminForm.name}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, name: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    maxLength={validationLimits.dietNameMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, name: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, name: '' })); }}
+                    aria-invalid={!!adminFieldErrors.name}
+                    className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(adminFieldErrors.name)}`}
                   />
+                  <FieldError message={adminFieldErrors.name} />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-2">Krótki opis</label>
                   <input
                     value={adminForm.shortDescription}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, shortDescription: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    maxLength={validationLimits.shortDescriptionMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, shortDescription: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, shortDescription: '' })); }}
+                    aria-invalid={!!adminFieldErrors.shortDescription}
+                    className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(adminFieldErrors.shortDescription)}`}
                   />
+                  <FieldError message={adminFieldErrors.shortDescription} />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-2">Opis</label>
                   <textarea
                     value={adminForm.description}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, description: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg min-h-[120px]"
+                    maxLength={validationLimits.descriptionMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, description: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, description: '' })); }}
+                    aria-invalid={!!adminFieldErrors.description}
+                    className={`w-full px-4 py-2 border rounded-lg min-h-[120px] ${fieldClassName(adminFieldErrors.description)}`}
                   />
+                  <FieldError message={adminFieldErrors.description} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">URL miniatury</label>
+                  <label className="block text-sm font-medium mb-2">URL miniatury<OptionalMark /></label>
                   <input
                     value={adminForm.image}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, image: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    maxLength={validationLimits.csvMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, image: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, image: '' })); }}
+                    aria-invalid={!!adminFieldErrors.image}
+                    className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(adminFieldErrors.image)}`}
                   />
+                  <FieldError message={adminFieldErrors.image} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">URL zdjęć (CSV)</label>
+                  <label className="block text-sm font-medium mb-2">URL zdjęć (CSV)<OptionalMark /></label>
                   <input
                     value={adminForm.images}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, images: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    maxLength={validationLimits.csvMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, images: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, images: '' })); }}
+                    aria-invalid={!!adminFieldErrors.images}
+                    className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(adminFieldErrors.images)}`}
                     placeholder="url1, url2, url3"
                   />
+                  <FieldError message={adminFieldErrors.images} />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-2">Warianty: kaloryczność:cena / dzień (CSV)</label>
                   <input
                     value={adminForm.variants}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, variants: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg"
+                    maxLength={validationLimits.csvMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, variants: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, variants: '' })); }}
+                    aria-invalid={!!adminFieldErrors.variants}
+                    className={`w-full px-4 py-2 border rounded-lg ${fieldClassName(adminFieldErrors.variants)}`}
                     placeholder="1500:69, 2000:79, 2500:89"
                   />
+                  <FieldError message={adminFieldErrors.variants} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Cel</label>
+                  <label className="block text-sm font-medium mb-2">Cel<OptionalMark /></label>
                   <input
                     value={adminForm.goal}
+                    maxLength={validationLimits.shortDescriptionMax}
                     onChange={(e) => setAdminForm((f) => ({ ...f, goal: e.target.value }))}
                     className="w-full px-4 py-2 border border-border rounded-lg"
                     placeholder="Utrata wagi / Budowa masy mięśniowej / Zdrowe odżywianie"
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">Tagi (CSV)</label>
+                  <label className="block text-sm font-medium mb-2">Tagi (CSV)<OptionalMark /></label>
                   <input
                     value={adminForm.tags}
+                    maxLength={validationLimits.csvMax}
                     onChange={(e) => setAdminForm((f) => ({ ...f, tags: e.target.value }))}
                     className="w-full px-4 py-2 border border-border rounded-lg"
                     placeholder="Wegetariańska, Keto..."
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">Alergeny (CSV)</label>
+                  <label className="block text-sm font-medium mb-2">Alergeny (CSV)<OptionalMark /></label>
                   <input
                     value={adminForm.allergens}
+                    maxLength={validationLimits.csvMax}
                     onChange={(e) => setAdminForm((f) => ({ ...f, allergens: e.target.value }))}
                     className="w-full px-4 py-2 border border-border rounded-lg"
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">Przykładowe menu (1 linia = 1 pozycja)</label>
+                  <label className="block text-sm font-medium mb-2">Przykładowe menu (1 linia = 1 pozycja)<OptionalMark /></label>
                   <textarea
                     value={adminForm.sampleMenu}
-                    onChange={(e) => setAdminForm((f) => ({ ...f, sampleMenu: e.target.value }))}
-                    className="w-full px-4 py-2 border border-border rounded-lg min-h-[140px]"
+                    maxLength={validationLimits.menuMax}
+                    onChange={(e) => { setAdminForm((f) => ({ ...f, sampleMenu: e.target.value })); setAdminFieldErrors((errors) => ({ ...errors, sampleMenu: '' })); }}
+                    aria-invalid={!!adminFieldErrors.sampleMenu}
+                    className={`w-full px-4 py-2 border rounded-lg min-h-[140px] ${fieldClassName(adminFieldErrors.sampleMenu)}`}
                   />
+                  <FieldError message={adminFieldErrors.sampleMenu} />
                 </div>
               </div>
 

@@ -14,6 +14,7 @@ import { CheckoutPage } from './pages/CheckoutPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { LegalPage } from './pages/LegalPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 import { RequireAdmin, RequireGuest } from './components/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
 
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/reset-hasla" element={<RequireGuest><ResetPasswordPage /></RequireGuest>} />
           <Route path="/regulamin" element={<LegalPage title="Regulamin" />} />
           <Route path="/polityka-prywatnosci" element={<LegalPage title="Polityka prywatności" />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Layout>
       <Toaster position="top-right" richColors closeButton />
